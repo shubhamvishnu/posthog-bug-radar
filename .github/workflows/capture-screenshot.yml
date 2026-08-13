@@ -1,0 +1,40 @@
+name: Capture Screenshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      session_id:
+        required: true
+        type: string
+      key_timestamp:
+        required: true
+        type: string
+      connection_id:
+        required: true
+        type: string
+      owner_email:
+        required: true
+        type: string
+      task_index:
+        required: true
+        type: string
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: playwright install --with-deps chromium
+      - run: |
+          python3 capture_screenshot.py \
+            --session-id "${{ inputs.session_id }}" \
+            --key-timestamp "${{ inputs.key_timestamp }}" \
+            --connection-id "${{ inputs.connection_id }}" \
+            --owner-email "${{ inputs.owner_email }}" \
+            --task-index "${{ inputs.task_index }}"
+        env:
+          BUGRADAR_API_SECRET: ${{ secrets.BUGRADAR_API_SECRET }}
