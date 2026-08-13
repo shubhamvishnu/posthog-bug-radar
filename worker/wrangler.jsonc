@@ -15,6 +15,12 @@
       "database_id": "65292c22-00df-42a0-ad9b-b5bb97dee409"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "bug-radar-media"
+    }
+  ],
   "vars": {
     "RESEND_FROM": "Bug Radar <login@revsight.io>"
   }

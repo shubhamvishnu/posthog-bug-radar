@@ -309,6 +309,35 @@ async function resolveGoals(env, ownerEmail, findings) {
   return findings;
 }
 
+// Best-effort: finds the task by session_id + task_index in whatever report is
+// currently latest for this owner, and appends a media entry to it. If that
+// session/task isn't in the latest report anymore (a newer run replaced it),
+// this is a no-op, not an error, the screenshot is simply dropped, matching
+// this feature's fail-soft design.
+async function mergeMediaIntoTask(env, ownerEmail, sessionId, taskIndex, mediaEntry) {
+  const base = await env.DB.prepare("SELECT * FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1").bind(ownerEmail).first();
+  if (!base) return false;
+  const micro = JSON.parse(base.micro_findings);
+  const finding = micro.find(f => f.session_id === sessionId);
+  const task = finding && finding.tasks && finding.tasks[taskIndex];
+  if (!task) return false;
+  task.media = task.media || [];
+  task.media.push(mediaEntry);
+  await env.DB.prepare(
+    `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    new Date().toISOString(),
+    base.macro_themes,
+    JSON.stringify(micro),
+    base.theme_prompt,
+    base.session_prompt,
+    ownerEmail,
+    base.connection_id
+  ).run();
+  return true;
+}
+
 async function getLatestReport(db, ownerEmail) {
   const row = await db
     .prepare("SELECT * FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1")
@@ -503,6 +532,32 @@ export default {
         connectionId || (base ? base.connection_id : null)
       ).run();
       return json({ ok: true, merged_session_ids: newFindings.map(f => f.session_id), total_findings: mergedMicro.length });
+    }
+
+    if (pathname === "/api/pipeline/media" && request.method === "POST") {
+      if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const sessionId = url.searchParams.get("session_id");
+      const taskIndex = Number(url.searchParams.get("task_index"));
+      const ownerEmail = url.searchParams.get("owner_email");
+      const ts = url.searchParams.get("ts") || "";
+      if (!sessionId || Number.isNaN(taskIndex) || !ownerEmail) {
+        return json({ error: "session_id, task_index, owner_email required" }, 400);
+      }
+      const bytes = await request.arrayBuffer();
+      if (!bytes.byteLength) return json({ error: "empty body" }, 400);
+      const key = `media/${sessionId}/${taskIndex}/${crypto.randomUUID()}.png`;
+      await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: "image/png" } });
+      const merged = await mergeMediaIntoTask(env, ownerEmail, sessionId, taskIndex, { ts, isImg: true, url: `/api/media/${key}` });
+      return json({ ok: true, url: `/api/media/${key}`, merged });
+    }
+
+    const mediaMatch = pathname.match(/^\/api\/media\/(.+)$/);
+    if (mediaMatch && request.method === "GET") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const obj = await env.MEDIA.get(mediaMatch[1]);
+      if (!obj) return json({ error: "not found" }, 404);
+      return new Response(obj.body, { headers: { "content-type": obj.httpMetadata?.contentType || "image/png" } });
     }
 
     if (pathname === "/api/prompts" && request.method === "GET") {
