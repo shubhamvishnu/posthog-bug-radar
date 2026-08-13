@@ -1,0 +1,2244 @@
+<meta charset="utf-8">
+<title>Bug Radar · dreamteam</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;letter-spacing:-.006em;background:var(--bg);color:var(--text);font-size:14px}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit;letter-spacing:inherit}
+input,textarea,select{font-family:inherit;letter-spacing:inherit}
+a{color:var(--accent);text-decoration:none}
+a:hover{opacity:.82}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:8px;border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-track{background:transparent}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:3px}
+
+:root{
+--bg:#ffffff;--bg-sub:#f7f6f4;--bg-elev:#ffffff;--bg-side:#fafaf8;--bg-hover:#f3f2ef;--bg-active:#eeece8;
+--border:#eceae5;--border-soft:#f1efeb;--border-str:#ddd9d2;--scroll:#d9d6cf;
+--text:#1a1712;--muted:#6b6860;--faint:#9c988e;
+--accent:#e5482b;--accent-fg:#ffffff;
+--sev-high:#e0442e;--sev-med:#bd7a17;--sev-low:#3e8f66;--sev-none:#a5a199;
+--oc-done:#2f9e6b;--oc-block:#e0442e;--oc-aband:#c07a1e;--oc-unres:#9a968e;
+--ev-dead:#bd7a17;--ev-rage:#e0442e;--ev-exc:#8b52d6;--ev-nav:#b4b0a7;
+--home-grad:linear-gradient(180deg,rgba(255,255,255,0) 0,#ffffff 130px),linear-gradient(96deg,#d5e6ff 0%,#ffe6d5 47%,#ffe1ce 60%,#d9f2e7 100%);
+--panel-grad:linear-gradient(150deg,#d5e6ff 0%,#ffe6d5 46%,#ffe1ce 62%,#d9f2e7 100%);
+--shadow:0 1px 2px rgba(20,16,10,.05),0 6px 18px rgba(20,16,10,.045);
+--icon-tile:#181510;--icon-fg:#ffffff;
+}
+html[data-theme="dark"]{
+--bg:#0c0d10;--bg-sub:#101116;--bg-elev:#15161b;--bg-side:#0a0b0d;--bg-hover:#16181d;--bg-active:#1b1d23;
+--border:#212228;--border-soft:#1a1b20;--border-str:#2d2f37;--scroll:#2a2c33;
+--text:#eef0f3;--muted:#989ca4;--faint:#63676f;
+--accent:#ff6a48;--accent-fg:#0c0d10;
+--sev-high:#ff5c52;--sev-med:#e0a13c;--sev-low:#43c98c;--sev-none:#6b6f78;
+--oc-done:#3fce8f;--oc-block:#ff5c52;--oc-aband:#e0a13c;--oc-unres:#6b6f78;
+--ev-dead:#e0a13c;--ev-rage:#ff5c52;--ev-exc:#b388ff;--ev-nav:#484b53;
+--home-grad:linear-gradient(180deg,rgba(12,13,16,0) 0,#0c0d10 130px),linear-gradient(96deg,#12233b 0%,#2a1a12 50%,#122a20 100%);
+--panel-grad:linear-gradient(150deg,#12233b 0%,#2a1a12 50%,#122a20 100%);
+--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.3);
+--icon-tile:#20222a;--icon-fg:#ffffff;
+}
+@keyframes fade-up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes toast-in{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+@keyframes menu-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes ring{to{transform:rotate(360deg)}}
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* ---- app shell ---- */
+.app{display:flex;height:100vh}
+.sidebar{width:232px;flex:none;background:var(--bg-side);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100%;transition:width .16s ease;overflow:hidden}
+.sidebar.collapsed{width:58px}
+.ws-row{display:flex;align-items:center;gap:6px;padding:14px 12px 12px;justify-content:space-between}
+.sidebar.collapsed .ws-row{flex-direction:column;padding:14px 0 12px;gap:10px;justify-content:center}
+.ws-btn{display:flex;align-items:center;gap:9px;min-width:0;flex:1;text-align:left}
+.sidebar.collapsed .ws-btn{flex:none}
+.logo-tile{width:26px;height:26px;flex:none;border-radius:7px;background:var(--icon-tile);display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.ws-name{font-weight:600;font-size:14px}
+.sidebar.collapsed .lbl{display:none}
+.collapse-btn{display:grid;place-items:center;width:26px;height:26px;flex:none;border-radius:6px;color:var(--faint)}
+.collapse-btn:hover{background:var(--bg-hover)}
+.side-nav{padding:6px 8px;display:flex;flex-direction:column;gap:1px}
+.sidebar.collapsed .side-nav{padding:6px 0}
+.nav-item{display:flex;align-items:center;gap:9px;height:31px;padding:0 9px;border-radius:7px;font-size:13px;font-weight:450;text-align:left;color:var(--muted)}
+.sidebar.collapsed .nav-item{padding:0;justify-content:center}
+.nav-item svg{flex:none}
+.nav-item.active{color:var(--text);background:var(--bg-active);font-weight:550}
+.nav-item:hover:not(.active){background:var(--bg-hover)}
+.side-bottom{margin-top:auto;padding:10px 8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px}
+.sidebar.collapsed .side-bottom{padding:10px 0}
+.theme-wrap{display:flex;background:var(--bg-sub);border:1px solid var(--border);border-radius:9px;padding:3px}
+.sidebar.collapsed .theme-wrap{flex-direction:column;align-items:center;gap:4px;background:transparent;border:none;padding:0}
+.theme-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 8px;border-radius:7px;font-size:12px;font-weight:500;color:var(--muted)}
+.theme-btn.active{color:var(--text);background:var(--bg-elev);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.sidebar.collapsed .theme-btn{width:32px;height:32px;flex:none;border:1px solid var(--border)}
+.sidebar.collapsed .theme-btn.active{background:var(--bg-active)}
+.user-row{display:flex;align-items:center;gap:9px;padding:4px;width:100%;text-align:left;border-radius:8px}
+.user-row:hover{background:var(--bg-hover)}
+.user-row .user-meta{min-width:0;overflow:hidden}
+.user-row .user-name,.user-row .user-role{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.sidebar.collapsed .user-row{justify-content:center;padding:2px 0}
+.profile-menu{position:fixed;top:0;left:0;width:236px;background:var(--bg-elev);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18);padding:6px;z-index:200;animation:menu-in .14s ease}
+.profile-menu-header{display:flex;align-items:center;gap:9px;padding:8px 8px 10px}
+.profile-menu-id{min-width:0;overflow:hidden}
+.profile-menu-name{display:block;font-size:13.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.profile-menu-email{display:block;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.profile-menu-sep{height:1px;background:var(--border);margin:2px 4px}
+.profile-menu-item{display:flex;align-items:center;gap:9px;width:100%;padding:8px;border-radius:8px;font-size:13px;color:var(--text);text-align:left}
+.profile-menu-item:hover{background:var(--bg-hover)}
+.profile-menu-item.danger{color:var(--sev-high)}
+.avatar{width:26px;height:26px;flex:none;border-radius:50%;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:11px}
+.avatar.lg{width:48px;height:48px;font-size:17px}
+.avatar.md{width:28px;height:28px;font-size:11px}
+.user-meta{min-width:0}
+.user-name{display:block;font-weight:500;font-size:12.5px;line-height:1.15}
+.user-role{display:block;color:var(--faint);font-size:10.5px}
+
+.main{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
+.pageheader{height:44px;flex:none;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:0 20px}
+.pageheader .crumb{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:5px}
+.pageheader .crumb:hover{color:var(--text)}
+.pageheader .sep{color:var(--faint)}
+.pageheader .title{font-weight:600;font-size:13.5px}
+.pageheader .idmono{font-family:'JetBrains Mono',monospace;color:var(--text);font-size:12.5px}
+.pageheader .count{color:var(--faint);font-family:'JetBrains Mono',monospace;font-size:12px}
+.content{flex:1;min-height:0;overflow:auto}
+.contentpad{padding:26px 30px 70px;max-width:900px}
+
+/* ---- home ---- */
+.home-bg{background:var(--home-grad);height:100%;overflow:auto}
+.home-wrap{max-width:1060px;margin:0 auto;padding:34px 40px 70px}
+.home-head{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:22px}
+.home-date{color:var(--muted);font-size:13px;font-weight:450;margin-bottom:7px}
+.home-h1{font-size:27px;line-height:1.15;font-weight:700;letter-spacing:-.025em;margin:0}
+.home-right{display:flex;align-items:center;gap:10px;flex:none;padding-top:20px}
+.home-lastrun{color:var(--muted);font-size:12.5px;font-style:italic}
+.icon-btn-square{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg-elev);display:grid;place-items:center;box-shadow:var(--shadow)}
+.insight-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:34px}
+.insight-card{background:var(--bg-elev);border:1px solid var(--border);border-radius:13px;padding:15px 17px;box-shadow:var(--shadow);display:flex;gap:13px;align-items:center}
+.insight-icon{width:40px;height:40px;flex:none;border-radius:50%;display:grid;place-items:center}
+.insight-eyebrow{font-size:12.5px;margin-bottom:2px}
+.insight-body{font-size:14px;line-height:1.45;color:var(--muted);min-width:0}
+.section-title-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.section-title{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0}
+.section-count{font-size:12px;color:var(--faint);font-family:'JetBrains Mono',monospace}
+.feed-row{display:flex;align-items:center;gap:12px;width:100%;height:42px;padding:0 14px;border-bottom:1px solid var(--border-soft);text-align:left}
+.feed-row:hover{background:var(--bg-hover)}
+.feed-row.top{box-shadow:inset 3px 0 0 var(--accent);background:var(--bg-sub)}
+.feed-tile{width:34px;height:34px;flex:none;border-radius:9px;display:grid;place-items:center}
+.feed-type{flex:none;font-size:11px;font-weight:500;padding:3px 8px;border-radius:6px;white-space:nowrap}
+.feed-bug-icon{flex:none;display:grid;place-items:center;width:16px}
+.feed-title{flex:1;min-width:0;font-weight:500;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.feed-rel{flex:none;font-size:12px;font-family:'JetBrains Mono',monospace;text-align:right;color:var(--faint);white-space:nowrap}
+.feed-sev{flex:none;display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.patterns-head{margin:36px 0 12px}
+.patterns-head h2{font-size:15px;font-weight:600;letter-spacing:-.01em;margin:0 0 2px}
+.patterns-head p{margin:0;color:var(--muted);font-size:13px}
+.macro-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.macro-card{background:var(--bg-elev);border:1px solid var(--border);border-radius:12px;padding:15px 16px;box-shadow:var(--shadow)}
+.macro-top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.macro-dot{width:7px;height:7px;border-radius:50%;flex:none}
+.macro-conf{font-size:11.5px;font-weight:600}
+.macro-ratio{margin-left:auto;font-size:11px;color:var(--faint);font-family:'JetBrains Mono',monospace}
+.macro-title{font-weight:600;font-size:14.5px;letter-spacing:-.01em;margin-bottom:5px}
+.macro-cause{font-size:13px;line-height:1.5;color:var(--muted)}
+.empty-note{color:var(--muted);font-size:13px;padding:20px 14px}
+
+/* ---- people / sessions list rows ---- */
+.list-subhead{display:flex;align-items:center;height:34px;padding:0 20px;background:var(--bg-sub);border-bottom:1px solid var(--border);font-size:11px;letter-spacing:.02em;color:var(--faint);font-weight:500;gap:8px}
+.list-row{display:flex;align-items:center;width:100%;height:42px;padding:0 20px;border-bottom:1px solid var(--border-soft);text-align:left;gap:10px}
+.list-row:hover{background:var(--bg-hover)}
+.col-user{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+.col-user .nm{font-weight:500;font-size:13px;white-space:nowrap}
+.col-user .meta{font-size:12px;color:var(--faint);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.w-sess{width:110px;font-size:13px;color:var(--muted)}
+.w-sev{width:130px;display:flex;align-items:center;gap:7px}
+.w-sev span.lbl2{font-size:12.5px;color:var(--muted)}
+.w-bugs{width:90px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--muted)}
+.w-last{width:80px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--faint)}
+
+/* ---- people detail ---- */
+.pd-head{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+.pd-name{font-size:19px;font-weight:600;letter-spacing:-.02em}
+.pd-meta{color:var(--faint);font-size:12.5px;font-family:'JetBrains Mono',monospace}
+.stat-strip{display:flex;gap:10px;margin-bottom:26px;flex-wrap:wrap}
+.stat-box{border:1px solid var(--border);background:var(--bg-sub);border-radius:10px;padding:10px 14px;min-width:110px}
+.stat-box .l{font-size:11px;color:var(--faint);font-weight:500;margin-bottom:3px}
+.stat-box .v{font-size:19px;font-weight:600;font-family:'JetBrains Mono',monospace}
+.section-label{font-size:11.5px;color:var(--faint);font-weight:600;letter-spacing:.02em;margin-bottom:8px}
+.mini-row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;height:42px;padding:0 14px;border:1px solid var(--border);background:var(--bg-elev);border-radius:10px;margin-bottom:7px}
+.mini-row:hover{border-color:var(--border-str);background:var(--bg-hover)}
+.mini-row .idm{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--faint)}
+.mini-row .ttl{flex:1;min-width:0;font-weight:500;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini-dots{display:flex;gap:4px;flex:none}
+.mini-dots span{width:8px;height:8px;border-radius:50%}
+
+/* ---- sessions table ---- */
+.sess-toolbar{flex:1;display:flex;align-items:center;justify-content:flex-end;gap:10px}
+.search-box{display:flex;align-items:center;gap:6px;background:var(--bg-sub);border:1px solid var(--border);border-radius:7px;padding:4px 9px;width:210px}
+.search-box input{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:12.5px}
+.sev-tabs{display:flex;gap:1px;background:var(--bg-sub);border:1px solid var(--border);border-radius:7px;padding:2px}
+.sev-tab{padding:3px 10px;border-radius:6px;font-size:12px;font-weight:500;color:var(--muted)}
+.sev-tab.active{color:var(--text);background:var(--bg-elev);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.sess-row{display:flex;align-items:center;gap:10px;width:100%;height:42px;padding:0 20px;border-bottom:1px solid var(--border-soft);text-align:left}
+.sess-row:hover{background:var(--bg-hover)}
+.sess-id{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--faint);flex:none;width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sess-dot{width:6px;height:6px;flex:none;border-radius:50%;background:var(--accent)}
+.sess-title{flex:1;min-width:0;font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess-more{flex:none;font-size:11.5px;color:var(--faint)}
+.sess-dots{width:96px;display:flex;gap:4px;align-items:center;flex:none}
+.sess-dots span{width:8px;height:8px;border-radius:50%}
+.sess-ratio{width:52px;flex:none;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--muted)}
+.sess-counts{width:120px;flex:none;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--faint)}
+.sess-rel{width:46px;flex:none;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--faint)}
+
+/* ---- session detail ---- */
+.btn-outline{display:flex;align-items:center;gap:6px;padding:7px 12px;border:1px solid var(--border-str);border-radius:8px;font-size:12.5px;font-weight:500;color:var(--text)}
+.btn-outline:hover{background:var(--bg-hover)}
+.btn-primary{padding:8px 15px;background:var(--accent);color:var(--accent-fg);border-radius:8px;font-weight:600;font-size:13px}
+.btn-primary:hover{opacity:.9}
+.btn-secondary{padding:8px 15px;border:1px solid var(--border-str);border-radius:8px;font-weight:500;font-size:13px;color:var(--text)}
+.btn-secondary:hover{background:var(--bg-hover)}
+
+.sd-page{padding:26px 32px 80px;max-width:1060px}
+.sd-layout{display:flex;gap:28px}
+.sd-main{flex:1;min-width:0}
+.sd-eyebrow{font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.05em;margin-bottom:8px}
+.sd-h1{font-size:21px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px;line-height:1.25}
+.sd-subline{font-size:13px;color:var(--muted);margin-bottom:22px}
+
+.outreach-box{border:1px solid color-mix(in srgb,var(--accent) 38%,transparent);border-radius:11px;margin-bottom:20px;overflow:hidden}
+.outreach-header{display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:0 14px;text-align:left}
+.outreach-header:hover{background:var(--bg-hover)}
+.outreach-icon-tile{width:34px;height:34px;flex:none;border-radius:9px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);display:grid;place-items:center}
+.outreach-tag{flex:none;font-size:11px;font-weight:500;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);padding:3px 8px;border-radius:6px;white-space:nowrap}
+.outreach-header-title{flex:1;min-width:0;font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.outreach-chev{flex:none;transition:transform .15s ease}
+.outreach-chev.open{transform:rotate(90deg)}
+.outreach-panel{border-top:1px solid var(--border);background:var(--bg-sub);padding:13px 15px;animation:fade-up .16s ease}
+.outreach-to-row{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:10px}
+.outreach-draft{width:100%;min-height:112px;resize:vertical;background:var(--bg-elev);border:1px solid var(--border-str);border-radius:9px;padding:11px 13px;font-size:13.5px;line-height:1.55;color:var(--text);outline:none}
+.outreach-draft:focus{border-color:var(--accent)}
+.outreach-actions{display:flex;align-items:center;gap:8px;margin-top:10px}
+.outreach-send{display:flex;align-items:center;gap:6px;padding:7px 13px;background:var(--accent);color:var(--accent-fg);border-radius:8px;font-weight:600;font-size:12.5px}
+.outreach-send:hover{opacity:.9}
+.outreach-discard{padding:7px 12px;border:1px solid var(--border-str);border-radius:8px;font-size:12.5px;font-weight:500;color:var(--text)}
+.outreach-discard:hover{background:var(--bg-hover)}
+.no-outreach{border:1px dashed var(--border-str);border-radius:12px;padding:13px 16px;margin-bottom:24px;display:flex;align-items:center;gap:9px;color:var(--muted);font-size:13px}
+
+.tasks-head-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.tasks-head-row .lbl{font-size:11.5px;color:var(--faint);font-weight:600;letter-spacing:.03em}
+.tasks-head-row .cnt{font-size:11.5px;color:var(--faint);font-family:'JetBrains Mono',monospace}
+.tasks-head-rule{flex:1;height:1px;background:var(--border)}
+
+.task-card{border:1px solid var(--border);background:var(--bg-elev);border-radius:11px;margin-bottom:8px;overflow:hidden}
+.task-header{display:flex;align-items:center;gap:12px;width:100%;height:46px;padding:0 14px;text-align:left}
+.task-header:hover{background:var(--bg-hover)}
+.task-tile{width:34px;height:34px;flex:none;border-radius:9px;display:grid;place-items:center}
+.task-bug-icon{flex:none;display:grid;place-items:center;width:16px}
+.task-header-title{flex:1;min-width:44px;font-weight:500;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.task-header-sev{flex:none;display:flex;align-items:center;gap:6px;justify-content:flex-end}
+.task-chev{flex:none;transition:transform .15s ease}
+.task-chev.open{transform:rotate(90deg)}
+.task-panel{border-top:1px solid var(--border);padding:14px 16px 15px;animation:fade-up .16s ease}
+.task-panel-top{display:flex;align-items:flex-start;gap:14px;margin-bottom:9px}
+.task-goal-line{flex:1;min-width:0;font-size:12.5px;color:var(--muted);line-height:1.5}
+.task-goal-line .faint{color:var(--faint)}
+.task-icon-actions{flex:none;display:flex;gap:6px}
+.icon-btn{display:grid;place-items:center;width:29px;height:29px;flex:none;border:1px solid var(--border-str);border-radius:8px;color:var(--muted)}
+.icon-btn:hover{background:var(--bg-hover)}
+.icon-btn.accent{color:var(--accent)}
+.icon-btn.on{border-color:var(--accent);color:var(--accent)}
+.task-narrative2{margin:0 0 11px;font-size:13.5px;line-height:1.62}
+.task-status-row{display:flex;align-items:center;gap:16px;font-size:12px;color:var(--muted)}
+.task-status-row .dot-item{display:flex;align-items:center;gap:6px}
+.task-status-row .dot-item .dot{width:7px;height:7px;border-radius:50%}
+.evidence-toggle{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:500;color:var(--muted);padding:9px 0 2px}
+.evidence-toggle:hover{color:var(--text)}
+.evidence-block{margin-top:8px;background:var(--bg-sub);border:1px solid var(--border);border-radius:9px;padding:9px 12px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.55;color:var(--muted);animation:fade-up .14s ease}
+.moment-toggle{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.03em}
+.moment-toggle:hover{color:var(--text)}
+.moment-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:8px;margin-top:9px}
+.moment-tile{position:relative;height:62px;border-radius:8px;overflow:hidden;border:1px solid var(--border-str);background:var(--bg-sub)}
+.moment-ph{position:absolute;inset:0;background:repeating-linear-gradient(135deg,var(--bg-sub),var(--bg-sub) 8px,var(--bg-hover) 8px,var(--bg-hover) 16px)}
+.moment-fade{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.24) 0,rgba(0,0,0,0) 34%,rgba(0,0,0,0) 56%,rgba(0,0,0,.46) 100%)}
+.moment-ts{position:absolute;left:6px;bottom:5px;pointer-events:none;font-family:'JetBrains Mono',monospace;font-size:9px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.55)}
+.moment-dur{position:absolute;right:5px;bottom:5px;pointer-events:none;font-family:'JetBrains Mono',monospace;font-size:8.5px;color:#fff;background:rgba(0,0,0,.5);padding:1px 4px;border-radius:4px}
+.moment-play{position:absolute;inset:0;margin:auto;width:28px;height:28px;border-radius:50%;background:rgba(15,15,18,.55);border:1.5px solid rgba(255,255,255,.85);display:grid;place-items:center;color:#fff}
+.moment-play:hover{background:var(--accent);border-color:var(--accent)}
+
+.correct-form{border-top:1px solid var(--border);background:var(--bg-sub);padding:15px 17px;animation:fade-up .16s ease}
+.correct-form-head{font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.03em;margin-bottom:3px}
+.correct-form-desc{font-size:12px;color:var(--muted);margin-bottom:14px}
+.correct-fields{display:flex;flex-direction:column;gap:12px}
+.correct-field-row{display:flex;align-items:center;gap:12px}
+.correct-field-label{width:78px;flex:none;font-size:12.5px;color:var(--muted)}
+.correct-opts{display:flex;gap:4px;flex-wrap:wrap}
+.correct-opt{padding:4px 10px;border-radius:6px;font-size:12px;font-weight:500;border:1px solid var(--border-str);background:var(--bg-elev);color:var(--muted)}
+.correct-opt.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent)}
+.correct-note-row{display:flex;gap:8px;align-items:center;margin:9px 0 0 90px;animation:fade-up .14s ease}
+.correct-note-input{flex:1;min-width:0;background:var(--bg-elev);border:1px solid var(--accent);border-radius:8px;padding:7px 10px;font-size:12.5px;color:var(--text);outline:none}
+.correct-actions{display:flex;align-items:center;gap:8px;margin-top:2px}
+.correct-save{padding:7px 14px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--accent-fg);background:var(--accent)}
+.correct-save:hover{opacity:.9}
+.correct-cancel{padding:7px 13px;border:1px solid var(--border-str);border-radius:8px;font-size:12.5px;font-weight:500;color:var(--text)}
+.correct-cancel:hover{background:var(--bg-hover)}
+.change-hint{margin-left:auto;font-size:11.5px;color:var(--faint)}
+
+.sd-rail{width:250px;flex:none;position:sticky;top:0;align-self:flex-start;display:flex;flex-direction:column;gap:14px}
+.rail-replay-link{display:flex;align-items:center;justify-content:center;gap:7px;padding:9px;border:1px solid var(--border-str);border-radius:9px;font-size:12.5px;font-weight:500;color:var(--text)}
+.rail-replay-link:hover{background:var(--bg-hover)}
+.rail-panel{border:1px solid var(--border);border-radius:11px;overflow:hidden}
+.rail-panel-head{padding:8px 13px;font-size:10.5px;color:var(--faint);font-weight:600;letter-spacing:.04em;background:var(--bg-sub);border-bottom:1px solid var(--border)}
+.rail-row{display:flex;align-items:center;gap:10px;padding:9px 13px;font-size:12.5px;border-top:1px solid var(--border-soft)}
+.rail-panel .rail-row:first-of-type{border-top:none}
+.rail-row .k{width:66px;flex:none;color:var(--faint)}
+.rail-row .v{flex:1;min-width:0;display:flex;align-items:center;gap:7px}
+.rail-signal-row{display:flex;align-items:center;justify-content:space-between;padding:9px 13px;font-size:12.5px;border-top:1px solid var(--border-soft)}
+.rail-panel .rail-signal-row:first-of-type{border-top:none}
+.rail-signal-row .lbl{display:flex;align-items:center;gap:8px}
+.rail-signal-row .lbl .dot{width:7px;height:7px;border-radius:50%}
+.rail-signal-row .val{font-family:'JetBrains Mono',monospace;font-weight:600}
+
+.sd-tabs{display:flex;gap:4px;margin-top:28px;border-bottom:1px solid var(--border)}
+.sd-tab-btn{display:flex;align-items:center;gap:7px;padding:9px 4px;margin-right:18px;font-size:12.5px;font-weight:500;color:var(--muted);border-bottom:2px solid transparent}
+.sd-tab-btn.active{color:var(--text);font-weight:600;border-bottom-color:var(--accent)}
+.sd-tab-body{margin-top:15px}
+.evidence-card{border:1px solid var(--border);border-radius:11px;padding:13px 15px;margin-bottom:9px;font-size:12.5px;line-height:1.55}
+.evidence-card:last-child{margin-bottom:0}
+.timeline-wrap{position:relative;padding-left:20px;margin-top:24px}
+.timeline-spine{position:absolute;left:5px;top:6px;bottom:6px;width:2px;background:var(--border)}
+.tl-row{position:relative;display:flex;align-items:baseline;gap:13px;padding:5px 0}
+.tl-row.dim{opacity:.55}
+.tl-dot{position:absolute;left:-20px;top:8px;width:12px;height:12px;border-radius:50%;background:var(--bg)}
+.tl-time{width:60px;flex:none;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--faint)}
+.tl-tag{flex:none;width:40px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;text-transform:uppercase;border-radius:5px;padding:2px 0}
+.tl-label{flex:1;min-width:0;font-size:13px}
+.tl-path{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--faint)}
+
+/* ---- settings ---- */
+.kv-table{border:1px solid var(--border);border-radius:11px;overflow:hidden;margin-bottom:28px}
+.kv-row{display:flex;padding:11px 15px;border-bottom:1px solid var(--border-soft);font-size:13px}
+.kv-row:last-child{border-bottom:none}
+.kv-k{width:180px;flex:none;color:var(--muted)}
+.kv-v{font-family:'JetBrains Mono',monospace;color:var(--text)}
+.prompt-card{border:1px solid var(--border);border-radius:11px;margin-bottom:10px;overflow:hidden}
+.prompt-head{display:flex;align-items:center;gap:8px;padding:10px 15px;background:var(--bg-sub);border-bottom:1px solid var(--border)}
+.prompt-head .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+.prompt-head .nm{font-weight:600;font-size:12.5px}
+.prompt-head .tag{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--faint)}
+.prompt-body{margin:0;padding:14px 16px;font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.65;color:var(--muted);white-space:pre-wrap;word-break:break-word}
+.prompt-body .ph{color:var(--accent)}
+.corr-head-row{display:flex;align-items:center;margin:28px 0 12px}
+.corr-log{border:1px solid var(--border);border-radius:11px;overflow:hidden}
+.corr-entry{padding:13px 16px;border-bottom:1px solid var(--border-soft)}
+.corr-entry:last-child{border-bottom:none}
+.corr-top{display:flex;align-items:center;gap:9px;margin-bottom:7px;flex-wrap:wrap}
+.corr-top .ttl{font-weight:600;font-size:12.5px}
+.corr-top .sid{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--faint)}
+.corr-top .ts{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--faint)}
+.corr-change{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:12.5px;flex-wrap:wrap}
+.corr-change .fld{font-family:'JetBrains Mono',monospace;color:var(--muted)}
+.corr-change .from{padding:1px 7px;border-radius:5px;background:var(--bg-sub);border:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);text-decoration:line-through}
+.corr-change .to{padding:1px 7px;border-radius:5px;background:color-mix(in srgb,var(--accent) 13%,transparent);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);font-weight:600}
+.corr-reason{font-size:12.5px;line-height:1.55;color:var(--muted)}
+
+.settings-tabs{display:inline-flex;gap:2px;background:var(--bg-sub);border:1px solid var(--border);border-radius:10px;padding:3px;margin-bottom:26px}
+.settings-tab-btn{padding:7px 15px;border-radius:8px;font-size:13px;font-weight:500;color:var(--muted)}
+.settings-tab-btn.active{font-weight:600;color:var(--text);background:var(--bg-elev);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+
+.conn-empty{border:1px solid var(--border);border-radius:14px;padding:46px 32px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px}
+.conn-empty-icon{width:46px;height:46px;border-radius:12px;background:var(--bg-sub);border:1px solid var(--border);display:flex;align-items:flex-end;justify-content:center;gap:3px;padding:11px}
+.conn-form-card,.conn-running-card{border:1px solid var(--border);border-radius:14px;padding:24px;max-width:560px}
+.conn-input{width:100%;height:42px;padding:0 13px;border-radius:10px;border:1px solid var(--border-str);background:var(--bg-elev);color:var(--text);font-size:13.5px;font-family:'JetBrains Mono',monospace;outline:none}
+.conn-check-row{display:flex;align-items:center;gap:11px;font-size:13.5px}
+.conn-check-dot{width:19px;height:19px;flex:none;border-radius:50%;display:grid;place-items:center}
+.conn-check-dot.done{background:color-mix(in srgb,var(--oc-done) 16%,transparent);color:var(--oc-done)}
+.conn-check-dot.running{border:2px solid color-mix(in srgb,var(--accent) 30%,transparent);border-top-color:var(--accent);animation:ring .7s linear infinite}
+.conn-check-dot.pending{border:1.5px solid var(--border-str)}
+.conn-pick-row{display:flex;align-items:center;gap:11px;padding:12px 14px;border:1px solid var(--border-str);border-radius:10px;text-align:left;width:100%}
+.conn-pick-row:hover{border-color:var(--accent);background:var(--bg-hover)}
+.conn-source-row{display:flex;align-items:center;gap:12px;padding:13px 16px;border:1px solid var(--border);border-radius:12px;margin-bottom:22px}
+.conn-card{border:1px solid var(--border);border-radius:14px;overflow:hidden}
+.conn-card-head{padding:20px 22px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:14px}
+.conn-identity{padding:18px 22px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.conn-quick{padding:18px 22px;border-bottom:1px solid var(--border);display:grid;grid-template-columns:repeat(2,1fr);gap:12px 22px}
+.conn-events{padding:18px 22px;border-bottom:1px solid var(--border)}
+.conn-event-chip{font-family:'JetBrains Mono',monospace;font-size:11.5px;padding:3px 9px;border-radius:6px;background:var(--bg-sub);border:1px solid var(--border);color:var(--text)}
+.conn-group{border-bottom:1px solid var(--border-soft)}
+.conn-group-btn{display:flex;align-items:center;gap:12px;width:100%;padding:14px 22px;text-align:left}
+.conn-group-btn:hover{background:var(--bg-hover)}
+.conn-group-chev{flex:none;transition:transform .15s ease}
+.conn-group-chev.open{transform:rotate(90deg)}
+.conn-group-body{padding:2px 22px 16px 48px;display:flex;flex-direction:column;gap:11px}
+.conn-item-chip{flex:none;margin-top:1px;display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:6px;font-size:11px;font-weight:500;white-space:nowrap}
+.conn-savebar{padding:16px 22px;display:flex;align-items:center;gap:12px}
+.know-card{border:1px solid var(--border);border-radius:14px;padding:22px;max-width:620px}
+.know-textarea{width:100%;min-height:150px;padding:13px;border-radius:10px;border:1px solid var(--border-str);background:var(--bg-elev);color:var(--text);font-size:13.5px;line-height:1.6;outline:none;resize:vertical;font-family:inherit}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 17px;border-radius:10px;font-size:13px;font-weight:500;box-shadow:0 10px 30px rgba(0,0,0,.3);animation:toast-in .2s ease;display:flex;align-items:center;gap:9px;z-index:50}
+
+/* ---- login ---- */
+.login-shell{display:flex;min-height:100vh;background:var(--bg);color:var(--text)}
+.login-panel{width:46%;max-width:600px;flex:none;position:relative;overflow:hidden;border-right:1px solid var(--border);display:flex}
+.login-panel-wash{position:absolute;inset:0;background:var(--panel-grad)}
+html:not([data-theme="dark"]) .login-panel-wash{opacity:.9}
+html[data-theme="dark"] .login-panel-wash{opacity:.5}
+.login-panel-fade{position:absolute;inset:0;background:radial-gradient(120% 80% at 15% 0%,transparent 40%,var(--bg) 120%)}
+.login-panel-inner{position:relative;display:flex;flex-direction:column;height:100%;padding:40px 44px}
+.login-brand-row{display:flex;align-items:center;gap:11px}
+.login-brand-tile{width:34px;height:34px;flex:none;border-radius:9px;background:var(--icon-tile);display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.login-brand-name{font-weight:600;font-size:17px}
+.login-pitch{margin-top:auto;max-width:420px}
+.login-pulse-chip{display:inline-flex;align-items:center;gap:7px;padding:5px 11px;border-radius:99px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);font-size:12px;font-weight:500;margin-bottom:22px}
+.login-pulse-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse-dot 1.8s ease-in-out infinite}
+.login-h1{font-size:31px;line-height:1.18;font-weight:700;letter-spacing:-.028em;margin:0 0 16px}
+.login-pitch-sub{font-size:15px;line-height:1.55;color:var(--muted);margin:0}
+.login-features{display:flex;flex-direction:column;gap:13px;margin-top:34px}
+.login-feature-row{display:flex;align-items:center;gap:11px;font-size:13.5px}
+.login-feature-icon{width:26px;height:26px;flex:none;border-radius:7px;background:color-mix(in srgb,var(--accent) 11%,transparent);color:var(--accent);display:grid;place-items:center}
+.login-feature-row span:last-child{color:var(--muted)}
+.login-trust{margin-top:auto;padding-top:34px;display:flex;align-items:center;gap:16px;color:var(--faint);font-size:12px}
+
+.login-main{flex:1;min-width:0;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px}
+.login-theme-toggle{position:absolute;top:22px;right:24px;display:flex;align-items:center;gap:2px;background:var(--bg-sub);border:1px solid var(--border);border-radius:9px;padding:3px}
+.login-theme-btn{display:grid;place-items:center;width:30px;height:26px;border-radius:6px;color:var(--faint)}
+.login-theme-btn.active{color:var(--text);background:var(--bg-elev);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.login-card{width:100%;max-width:392px;animation:fade-up .3s ease both}
+
+.login-tabs{display:inline-flex;align-items:center;gap:3px;background:var(--bg-sub);border:1px solid var(--border);border-radius:9px;padding:3px;width:max-content;margin-bottom:22px}
+.login-tab{padding:6px 15px;border-radius:7px;font-size:13px;font-weight:500;color:var(--muted)}
+.login-tab.active{font-weight:600;color:var(--text);background:var(--bg-elev);box-shadow:var(--shadow)}
+.login-title{font-size:23px;font-weight:700;letter-spacing:-.022em;margin:0}
+.login-subtitle{font-size:14px;color:var(--muted);margin:6px 0 0}
+
+.sso-stack{display:flex;flex-direction:column;gap:10px;margin-top:26px}
+.sso-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:46px;border-radius:11px;border:1px solid var(--border-str);background:var(--bg-elev);color:var(--text);font-size:14px;font-weight:500;box-shadow:var(--shadow)}
+.sso-btn:hover{background:var(--bg-hover)}
+.sso-icon{display:grid;place-items:center;width:18px;height:18px;flex:none}
+
+.login-divider{display:flex;align-items:center;gap:12px;margin:22px 0}
+.login-divider .line{flex:1;height:1px;background:var(--border)}
+.login-divider .lbl{font-size:12px;color:var(--faint);font-weight:450}
+
+.login-label{display:block;font-size:12.5px;font-weight:500;color:var(--muted);margin-bottom:7px}
+.login-field{display:flex;align-items:center;gap:9px;height:46px;padding:0 13px;border-radius:11px;background:var(--bg-elev);border:1px solid var(--border-str);transition:border-color .12s ease,box-shadow .12s ease}
+.login-field.focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 14%,transparent)}
+.login-field.err{border-color:var(--accent)}
+.login-field input{flex:1;min-width:0;border:none;background:none;outline:none;color:var(--text);font-size:14.5px;height:100%}
+.login-error{display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--accent);font-size:12.5px}
+.login-primary-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:46px;margin-top:16px;border-radius:11px;background:var(--accent);color:var(--accent-fg);font-size:14.5px;font-weight:600;box-shadow:var(--shadow)}
+.login-primary-btn:hover{opacity:.94}
+.login-primary-btn.disabled{opacity:.45;pointer-events:none}
+.login-terms{font-size:12.5px;color:var(--faint);line-height:1.5;margin:20px 0 0;text-align:center}
+.spinner{width:15px;height:15px;border-radius:50%;border:2px solid color-mix(in srgb,var(--accent-fg) 40%,transparent);border-top-color:var(--accent-fg);animation:ring .7s linear infinite;display:inline-block}
+
+.otp-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-bottom:22px}
+.otp-icon-tile{width:46px;height:46px;border-radius:12px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);display:grid;place-items:center;margin-bottom:18px}
+.otp-cells{display:flex;gap:9px;margin:26px 0 4px}
+.otp-cell{width:52px;height:60px;text-align:center;font-size:24px;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--text);background:var(--bg-elev);border:1px solid var(--border-str);border-radius:12px;outline:none;transition:border-color .12s,box-shadow .12s}
+.otp-cell.filled{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 12%,transparent)}
+.otp-cell.err{border-color:var(--accent)}
+.otp-verify-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:46px;margin-top:24px;border-radius:11px;background:var(--accent);color:var(--accent-fg);font-size:14.5px;font-weight:600;box-shadow:var(--shadow);transition:opacity .15s ease}
+.otp-verify-btn.disabled{opacity:.45;pointer-events:none}
+.otp-resend-row{text-align:center;margin-top:20px;font-size:13px;color:var(--muted)}
+.otp-resend-row button{color:var(--accent);font-weight:500}
+
+.done-check{width:60px;height:60px;border-radius:50%;background:color-mix(in srgb,var(--sev-low) 15%,transparent);color:var(--sev-low);display:grid;place-items:center;margin:0 auto 22px}
+.done-wrap{text-align:center}
+.done-sub{font-size:14px;color:var(--muted);line-height:1.55;margin:8px 0 26px}
+.done-restart{font-size:13px;color:var(--muted)}
+
+@media (max-width:900px){
+  .login-panel{display:none}
+  .insight-grid,.macro-grid{grid-template-columns:1fr}
+  .sess-counts{display:none}
+}
+</style>
+
+<div id="app"></div>
+
+<script>
+"use strict";
+
+/* ---------------- data ---------------- */
+let REPORT = { generated_at: null, macro_themes: [], micro_findings: [] };
+let PROMPTS = { theme: "", session: "" };
+let CORRECTIONS = [];
+const PIPELINE = [
+  ["Status", "scheduled batch pipeline"],
+  ["Data source", "PostHog · project 253183 (dreamteam)"],
+  ["Signals", "$dead_click · $rageclick · $exception (events only, no session video)"],
+  ["Macro lookback", "14 days"],
+  ["Micro lookback", "3 days"],
+  ["Sessions per run", "8 (worst dead + rage×3 + exceptions×5)"],
+  ["LLM", "claude CLI · subscription login, not metered API credits"],
+  ["Store", "Cloudflare Worker + D1"],
+];
+
+let CONNECTIONS = [];
+let KNOWLEDGE = { domain: "", description: "" };
+let GOALS = [];
+
+async function loadData() {
+  const [reportRes, promptsRes, correctionsRes, connRes, knowRes, goalsRes] = await Promise.all([
+    fetch("/api/report"),
+    fetch("/api/prompts"),
+    fetch("/api/corrections"),
+    fetch("/api/connections"),
+    fetch("/api/company-knowledge"),
+    fetch("/api/goals"),
+  ]);
+  if (reportRes.ok) REPORT = await reportRes.json();
+  if (promptsRes.ok) PROMPTS = await promptsRes.json();
+  if (correctionsRes.ok) {
+    const raw = await correctionsRes.json();
+    CORRECTIONS = raw.map(c => ({
+      session_id: c.session_id, task_index: c.task_index, task_title: c.task_title,
+      task_goal: c.task_goal, field: c.field, from: c.from_value, to: c.to_value,
+      reason: c.reason, timestamp: c.created_at,
+    }));
+  }
+  if (connRes.ok) CONNECTIONS = await connRes.json();
+  if (knowRes.ok) { KNOWLEDGE = await knowRes.json(); state.knowledgeUrl = KNOWLEDGE.domain || ""; state.knowledgeDesc = KNOWLEDGE.description || ""; }
+  if (goalsRes.ok) GOALS = await goalsRes.json();
+}
+
+/* ---------------- state ---------------- */
+const state = {
+  route: "home",
+  selSession: null,
+  selPersonKey: null,
+  backTo: "sessions",
+  sevFilter: "all",
+  search: "",
+  collapsed: localStorage.getItem("br_collapsed") === "1",
+  correction: null,
+  openTask: null,
+  evidenceOpen: false,
+  outreachOpen: false,
+  draftText: null,
+  toast: null,
+  profileMenuOpen: false,
+
+  settingsTab: "connections",
+  connFlow: "idle",
+  connApiKey: "",
+  connRegion: null,
+  connCandidates: [],
+  connProjectId: null,
+  connProjectName: null,
+  connStep: 0,
+  connDraft: null,
+  connError: null,
+  identityEditing: false,
+  expandedGroups: {},
+  activeConnId: null,
+  knowledgeUrl: "",
+  knowledgeDesc: "",
+  knowledgeFilling: false,
+  sessionTab: "events",
+  goalFormOpen: false,
+  goalPurpose: "",
+  goalDesc: "",
+  goalTags: "",
+  expandedMedia: {},
+};
+
+function getTheme() {
+  return localStorage.getItem("br_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+}
+function setTheme(t) { localStorage.setItem("br_theme", t); render(); }
+
+/* ---------------- helpers ---------------- */
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+const SEV_RANK = { high: 3, medium: 2, low: 1, none: 0 };
+const SEV_VAR = { high: "var(--sev-high)", medium: "var(--sev-med)", low: "var(--sev-low)", none: "var(--sev-none)" };
+const SEV_TEXT = { high: "High", medium: "Medium", low: "Low", none: "None" };
+const OC_VAR = { completed: "var(--oc-done)", blocked: "var(--oc-block)", abandoned: "var(--oc-aband)", unresolved: "var(--oc-unres)" };
+const OC_TEXT = { completed: "Completed", blocked: "Blocked", abandoned: "Abandoned", unresolved: "Unresolved" };
+const EV_VAR = { "$dead_click": "var(--ev-dead)", "$rageclick": "var(--ev-rage)", "$exception": "var(--ev-exc)", "$pageview": "var(--ev-nav)", "$autocapture": "var(--ev-nav)" };
+const EV_TAG = { "$dead_click": "dead", "$rageclick": "rage", "$exception": "exc", "$pageview": "nav", "$autocapture": "click" };
+const EV_LABEL = { "$dead_click": "Dead click", "$rageclick": "Rage click", "$exception": "Exception", "$pageview": "Page view", "$autocapture": "Click" };
+
+function sevOf(t) { return (t.severity || "none").toLowerCase(); }
+function ocOf(t) { return (t.outcome || "unresolved").toLowerCase(); }
+function worstSeverity(tasks) { return (tasks || []).reduce((w, t) => SEV_RANK[sevOf(t)] > SEV_RANK[w] ? sevOf(t) : w, "none"); }
+function bugCount(tasks) { return (tasks || []).filter(t => t.real_bug).length; }
+function chip(label, colorVar) {
+  return `<span style="display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:6px;font-size:11px;font-weight:500;line-height:1;white-space:nowrap;background:color-mix(in srgb,${colorVar} 13%,transparent);color:${colorVar}">${escapeHtml(label)}</span>`;
+}
+function bars(sev) { const r = SEV_RANK[sev]; const c = SEV_VAR[sev]; const off = "var(--border-str)"; return [r >= 1 ? c : off, r >= 2 ? c : off, r >= 3 ? c : off]; }
+function barsSvg(sev) {
+  const [b1, b2, b3] = bars(sev);
+  return `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="flex:none"><rect x="1" y="9" width="3" height="5" rx="1" fill="${b1}"/><rect x="6" y="6" width="3" height="8" rx="1" fill="${b2}"/><rect x="11" y="2" width="3" height="12" rx="1" fill="${b3}"/></svg>`;
+}
+function minutesAgo(iso) { if (!iso) return null; const d = new Date(iso).getTime(); if (isNaN(d)) return null; return Math.max(0, Math.round((Date.now() - d) / 60000)); }
+function relShort(min) { if (min == null) return "–"; return min < 60 ? min + "m" : Math.round(min / 60) + "h"; }
+function relLabel(min) { if (min == null) return "unknown"; return min < 60 ? min + "m ago" : Math.round(min / 60) + "h ago"; }
+function formatTime(ts) { const d = new Date(ts); return isNaN(d) ? String(ts) : d.toLocaleTimeString([], { hour12: false }); }
+function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+function personKey(f) { return (f.person && (f.person.email || f.person.person_id)) || "unknown"; }
+function personDisplayName(f) {
+  const p = f.person || {};
+  if (p.name) return p.name;
+  if (p.email) return p.email.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  return "Unidentified visitor";
+}
+function initialsOf(name) { const parts = String(name).split(" ").filter(Boolean); return (parts.slice(0, 2).map(w => w[0]).join("") || "?").toUpperCase(); }
+const AVATAR_PALETTE = [
+  ["color-mix(in srgb,#e5482b 15%,transparent)", "#c0492a"],
+  ["color-mix(in srgb,#3a5bd0 15%,transparent)", "#3a5bd0"],
+  ["color-mix(in srgb,#22885b 16%,transparent)", "#22885b"],
+  ["color-mix(in srgb,#7a3fc0 16%,transparent)", "#7a3fc0"],
+  ["color-mix(in srgb,#a4741b 18%,transparent)", "#a4741b"],
+  ["color-mix(in srgb,#4a6b73 18%,transparent)", "#4a6b73"],
+];
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h); }
+function avatarFor(key) { const p = AVATAR_PALETTE[hashStr(String(key)) % AVATAR_PALETTE.length]; return { bg: p[0], fg: p[1] }; }
+
+function decorateSession(f) {
+  const tasks = f.tasks || [];
+  const worst = worstSeverity(tasks);
+  const bugs = bugCount(tasks);
+  const c = f.triage_counts || {};
+  return {
+    f, id: f.session_id,
+    firstTitle: tasks[0]?.title || f.session_id,
+    otherLabel: tasks.length > 1 ? "+" + (tasks.length - 1) : "",
+    dots: tasks.map(t => ({ color: OC_VAR[ocOf(t)], title: (t.goal || "") + ": " + OC_TEXT[ocOf(t)] })),
+    worst, sevLabel: SEV_TEXT[worst],
+    bugsRatio: bugs + "/" + tasks.length,
+    countsLabel: (c.dead_clicks ?? 0) + " · " + (c.rage_clicks ?? 0) + " · " + (c.exceptions ?? 0),
+    outreach: !!f.recommended_outreach,
+    min: minutesAgo(f.started_at),
+  };
+}
+
+function groupByPerson() {
+  const map = new Map();
+  REPORT.micro_findings.forEach(f => {
+    const key = personKey(f);
+    if (!map.has(key)) map.set(key, { key, person: f.person || {}, sessions: [] });
+    map.get(key).sessions.push(f);
+  });
+  return [...map.values()];
+}
+
+function origVal(t, k) {
+  if (k === "real_bug") return t.real_bug ? "true" : "false";
+  if (k === "customer_reachable") return t.customer_reachable ? "true" : "false";
+  if (k === "outcome") return ocOf(t);
+  if (k === "severity") return sevOf(t);
+}
+const CORRECTION_DEFS = [
+  ["outcome", "Outcome", ["completed", "blocked", "abandoned", "unresolved"]],
+  ["severity", "Severity", ["high", "medium", "low", "none"]],
+  ["real_bug", "Real bug", ["true", "false"]],
+  ["customer_reachable", "Reachable", ["true", "false"]],
+];
+
+/* ---------------- icons ---------------- */
+const ICON_LOGO = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="3.4" cy="12.6" r="1.7" fill="var(--accent)"/><path d="M3.4 8.4A4.2 4.2 0 0 1 7.6 12.6" stroke="var(--icon-fg)" stroke-width="1.5" stroke-linecap="round" stroke-opacity=".92"/><path d="M3.4 4.4A8.2 8.2 0 0 1 11.6 12.6" stroke="var(--icon-fg)" stroke-width="1.5" stroke-linecap="round" stroke-opacity=".5"/></svg>`;
+const ICON_COLLAPSE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2.4"/><path d="M9.5 4.5v15"/></svg>`;
+const ICON_PEOPLE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="9" cy="8" r="3.1"/><path d="M3.6 19c.5-3 2.8-4.6 5.4-4.6S13.9 16 14.4 19"/><path d="M16.4 5.5a3 3 0 0 1 0 5.1M18.4 19c-.3-2-1.1-3.3-2.5-4.1"/></svg>`;
+const ICON_SESSIONS = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4.5" width="17" height="15" rx="2.4"/><path d="M3.5 9h17M8 13h5M8 16h8"/></svg>`;
+const ICON_SETTINGS = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="3"/><path d="M12 2.7v2.3M12 19v2.3M21.3 12H19M5 12H2.7M18.5 5.5l-1.6 1.6M7.1 16.9l-1.6 1.6M18.5 18.5l-1.6-1.6M7.1 7.1 5.5 5.5"/></svg>`;
+const ICON_SUN = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.1"/><path d="M12 2.6v2M12 19.4v2M21.4 12h-2M4.6 12h-2M18.4 5.6l-1.4 1.4M7 17l-1.4 1.4M18.4 18.4 17 17M7 7 5.6 5.6"/></svg>`;
+const ICON_MOON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.4A8.1 8.1 0 0 1 9.6 4 8.2 8.2 0 1 0 20 14.4Z"/></svg>`;
+const ICON_SEARCH = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>`;
+const ICON_SEARCH_BIG = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>`;
+const ICON_MAIL = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2.4"/><path d="m4 7 8 5.5L20 7"/></svg>`;
+const ICON_WARN = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.5 20h19z"/><path d="M12 9.5v4.5M12 17h.01"/></svg>`;
+const ICON_CLUSTER = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3v13M6 16l3-2.5 2.5 4L15 8l3 8"/></svg>`;
+const ICON_BUG = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--sev-high)" stroke-width="1.8" stroke-linecap="round"><path d="M9 8a3 3 0 0 1 6 0M8 11h8M12 8v10M6.4 11H4M6.6 7.2 5 5.6M6.4 15H4M17.6 11H20M17.4 7.2 19 5.6M17.6 15H20"/><rect x="8" y="8" width="8" height="10" rx="4"/></svg>`;
+const ICON_CHECK_CIRCLE = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2.4 2.4L16 9.5"/></svg>`;
+const ICON_BACK = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>`;
+const ICON_PLAY = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5.5v13l11-6.5z"/></svg>`;
+const ICON_PENCIL = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2 2 0 0 0-2.8-2.8L5 17.2z"/></svg>`;
+const ICON_EDIT = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`;
+const ICON_CAMERA = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="14" rx="2.2"/><path d="M8 21h8M12 18v3"/></svg>`;
+const ICON_EXPORT = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11M8 10.5l4 4 4-4M4.5 19.5h15"/></svg>`;
+const ICON_CHECKMARK = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--oc-done)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+const ICON_INFO = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>`;
+const ICON_ARROW = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`;
+const ICON_RADAR = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9" stroke-opacity=".35"/><circle cx="12" cy="12" r="5" stroke-opacity=".6"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><path d="M12 12 19 6" stroke-opacity=".9"/></svg>`;
+const ICON_CHEVRON = (size) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>`;
+const ICON_PLAY_FILL = `<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg>`;
+const ICON_NOTE = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16v10H10l-4 3.5V15.5H4z"/><path d="M12 8v4M10 10h4"/></svg>`;
+const ICON_SEND = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3 10 14M21 3l-7 18-4-8-8-4z"/></svg>`;
+const ICON_CORNER_ARROW = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M9 5v6a4 4 0 0 0 4 4h8M17 11l4 4-4 4"/></svg>`;
+
+/* ---------------- login icons ---------------- */
+const ICON_ALERT = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5M12 16h.01"/></svg>`;
+const ICON_BIG_CHECK = `<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg>`;
+const ICON_MAIL_OUTLINE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3" y="5" width="18" height="14" rx="2.4"/><path d="m3.5 6.5 8.5 6 8.5-6"/></svg>`;
+const ICON_MAIL_TILE = `<svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.4"/><path d="m3.5 6.5 8.5 6 8.5-6"/></svg>`;
+const ICON_CLOCK = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`;
+const ICON_DRAFT = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H5.2L4 18z"/><path d="M8 9h8M8 12h5"/></svg>`;
+const ICON_SHIELD = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.2-2.9 7.5-7 9-4.1-1.5-7-4.8-7-9V6z"/><path d="m9 12 2 2 4-4"/></svg>`;
+const ICON_GOOGLE = `<svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.49h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.89 2.68-6.63z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.85.86-3.04.86-2.34 0-4.32-1.58-5.02-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.98 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.02-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.02 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>`;
+const ICON_MICROSOFT = `<svg width="18" height="18" viewBox="0 0 18 18"><rect x="0" y="0" width="8.4" height="8.4" fill="#F25022"/><rect x="9.6" y="0" width="8.4" height="8.4" fill="#7FBA00"/><rect x="0" y="9.6" width="8.4" height="8.4" fill="#00A4EF"/><rect x="9.6" y="9.6" width="8.4" height="8.4" fill="#FFB900"/></svg>`;
+const ICON_SIGNAL = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12.5h3.5l2.2 5 3.4-11 2.3 6h6.6"/></svg>`;
+const ICON_USER = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c.9-3.8 3.6-5.8 7.5-5.8s6.6 2 7.5 5.8"/></svg>`;
+const ICON_TRASH = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>`;
+const ICON_LOGOUT = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5v-13A1.5 1.5 0 0 1 5.5 4H9"/><path d="M16 16l4-4-4-4M20 12H9"/></svg>`;
+const ICON_PLUS = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
+const ICON_SPARKLE = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"/></svg>`;
+const ICON_REFRESH = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8 8 0 0 0 6.3 5.7L3 9"/><path d="M3 4v5h5"/><path d="M4 13a8 8 0 0 0 13.7 5.3L21 15"/><path d="M21 20v-5h-5"/></svg>`;
+const ICON_SCAN = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="3.2"/></svg>`;
+const ICON_TERMINAL = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2.2"/><path d="m7 9.5 3 2.5-3 2.5M13 15h4"/></svg>`;
+
+/* ---------------- sidebar ---------------- */
+function renderSidebar() {
+  const collapsed = state.collapsed;
+  const r = state.route;
+  const theme = getTheme();
+  const isP = r === "people" || r === "people-detail";
+  const isS = r === "sessions" || r === "session-detail";
+  const meEmail = AUTH.email || "";
+  const meName = meEmail ? meEmail.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "Guest";
+  const meInitials = initialsOf(meName);
+  return `
+  <aside class="sidebar${collapsed ? " collapsed" : ""}">
+    <div class="ws-row">
+      <button class="ws-btn" data-act="nav" data-route="home">
+        <span class="logo-tile">${ICON_LOGO}</span>
+        <span class="lbl ws-name">Bug Radar</span>
+      </button>
+      <button class="collapse-btn" data-act="toggle-collapse" title="Collapse sidebar">${ICON_COLLAPSE}</button>
+    </div>
+    <nav class="side-nav">
+      <button class="nav-item${isP ? " active" : ""}" data-act="nav" data-route="people">${ICON_PEOPLE}<span class="lbl">People</span></button>
+      <button class="nav-item${isS ? " active" : ""}" data-act="nav" data-route="sessions">${ICON_SESSIONS}<span class="lbl">Sessions</span></button>
+      <button class="nav-item${r === "settings" ? " active" : ""}" data-act="nav" data-route="settings">${ICON_SETTINGS}<span class="lbl">Settings</span></button>
+    </nav>
+    <div class="side-bottom">
+      <div class="theme-wrap">
+        <button class="theme-btn${theme === "light" ? " active" : ""}" data-act="set-theme" data-theme="light">${ICON_SUN}<span class="lbl">Light</span></button>
+        <button class="theme-btn${theme === "dark" ? " active" : ""}" data-act="set-theme" data-theme="dark">${ICON_MOON}<span class="lbl">Dark</span></button>
+      </div>
+      <button class="user-row" id="profileMenuTrigger" data-act="toggle-profile-menu" title="${escapeHtml(meName)}">
+        <span class="avatar">${escapeHtml(meInitials)}</span>
+        <span class="lbl user-meta"><span class="user-name">${escapeHtml(meName)}</span><span class="user-role">${escapeHtml(AUTH.email || "")}</span></span>
+      </button>
+    </div>
+  </aside>`;
+}
+
+function renderProfileMenu() {
+  const meEmail = AUTH.email || "";
+  const meName = meEmail ? meEmail.split("@")[0].replace(/[._]/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "Guest";
+  const meInitials = initialsOf(meName);
+  return `
+  <div class="profile-menu">
+    <div class="profile-menu-header">
+      <span class="avatar">${escapeHtml(meInitials)}</span>
+      <span class="profile-menu-id">
+        <span class="profile-menu-name">${escapeHtml(meName)}</span>
+        <span class="profile-menu-email">${escapeHtml(meEmail)}</span>
+      </span>
+    </div>
+    <div class="profile-menu-sep"></div>
+    <button class="profile-menu-item" data-act="view-profile">${ICON_USER}View Profile</button>
+    <div class="profile-menu-sep"></div>
+    <button class="profile-menu-item danger" data-act="logout">${ICON_LOGOUT}Log out</button>
+  </div>`;
+}
+
+function positionProfileMenu() {
+  const trigger = document.getElementById("profileMenuTrigger");
+  const portal = document.getElementById("profileMenuPortal");
+  const menuEl = portal && portal.firstElementChild;
+  if (!trigger || !menuEl) return;
+  const r = trigger.getBoundingClientRect();
+  const gap = 10;
+  const menuW = menuEl.offsetWidth;
+  const menuH = menuEl.offsetHeight;
+  let left = r.right + gap;
+  if (left + menuW > window.innerWidth - 8) left = r.left - menuW - gap;
+  let top = r.top;
+  if (top + menuH > window.innerHeight - 8) top = window.innerHeight - menuH - 8;
+  if (top < 8) top = 8;
+  menuEl.style.left = Math.round(left) + "px";
+  menuEl.style.top = Math.round(top) + "px";
+}
+
+function syncProfileMenu() {
+  let portal = document.getElementById("profileMenuPortal");
+  if (!state.profileMenuOpen) {
+    if (portal) portal.remove();
+    return;
+  }
+  if (!portal) {
+    portal = document.createElement("div");
+    portal.id = "profileMenuPortal";
+    document.body.appendChild(portal);
+  }
+  portal.innerHTML = renderProfileMenu();
+  positionProfileMenu();
+}
+
+/* ---------------- home ---------------- */
+function buildFeed() {
+  const all = [];
+  REPORT.micro_findings.forEach(f => (f.tasks || []).forEach((t, ti) => all.push({ f, t, ti })));
+  const isOutreach = (f, ti) => f.recommended_outreach && f.recommended_outreach.task_index === ti;
+  let cands = all.filter(x => isOutreach(x.f, x.ti) || sevOf(x.t) === "high" || (sevOf(x.t) === "medium" && x.t.real_bug));
+  cands.sort((a, b) => {
+    const ao = isOutreach(a.f, a.ti) ? 1 : 0, bo = isOutreach(b.f, b.ti) ? 1 : 0;
+    if (ao !== bo) return bo - ao;
+    if (SEV_RANK[sevOf(b.t)] !== SEV_RANK[sevOf(a.t)]) return SEV_RANK[sevOf(b.t)] - SEV_RANK[sevOf(a.t)];
+    return (minutesAgo(a.f.started_at) ?? 0) - (minutesAgo(b.f.started_at) ?? 0);
+  });
+  return cands.slice(0, 8).map(x => ({ ...x, out: isOutreach(x.f, x.ti) }));
+}
+
+function renderFeedRow(item, idx) {
+  const { f, t, out } = item;
+  const clusterish = !out && ocOf(t) === "abandoned";
+  const typeLabel = out ? "Outreach" : (clusterish ? "Dead-clicks" : "Broken task");
+  const tileBg = out ? "color-mix(in srgb,var(--accent) 12%,transparent)" : "var(--bg-sub)";
+  const tileFg = out ? "var(--accent)" : "var(--muted)";
+  const icon = out ? ICON_MAIL : (clusterish ? ICON_CLUSTER : ICON_WARN);
+  const bugIcon = t.real_bug ? `<span title="Confirmed bug">${ICON_BUG}</span>` : `<span title="Not a bug">${ICON_CHECK_CIRCLE}</span>`;
+  const oc = ocOf(t), sv = sevOf(t);
+  return `
+  <button class="feed-row${idx === 0 ? " top" : ""}" data-act="open-session" data-id="${escapeHtml(f.session_id)}" data-from="home">
+    <span class="feed-tile" style="background:${tileBg};color:${tileFg}">${icon}</span>
+    <span class="feed-type" style="color:${out ? "var(--accent)" : "var(--muted)"};background:${tileBg}">${escapeHtml(typeLabel)}</span>
+    <span class="feed-bug-icon">${bugIcon}</span>
+    <span class="feed-title">${escapeHtml(t.title)}</span>
+    ${chip(OC_TEXT[oc], OC_VAR[oc])}
+    <span class="feed-rel">${escapeHtml(relLabel(minutesAgo(f.started_at)))}</span>
+    <span class="feed-sev"><span style="font-size:12.5px;font-weight:500;color:${SEV_VAR[sv]}">${SEV_TEXT[sv]}</span><span style="width:7px;height:7px;border-radius:50%;background:${SEV_VAR[sv]}"></span></span>
+  </button>`;
+}
+
+function renderHome() {
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const findings = REPORT.micro_findings;
+  const sweptCount = findings.length;
+  const outreachCount = findings.filter(f => f.recommended_outreach).length;
+  const allTasks = findings.flatMap(f => f.tasks || []);
+  const blockedCount = allTasks.filter(t => ocOf(t) === "blocked").length;
+  const macroThemes = REPORT.macro_themes || [];
+  const lowFpCount = macroThemes.filter(m => /^low/i.test((m.false_positive_risk || "").trim())).length;
+  const lastRun = REPORT.generated_at ? relLabel(minutesAgo(REPORT.generated_at)) : "no report yet";
+  const feed = buildFeed();
+
+  const feedHtml = feed.length
+    ? feed.map((item, i) => renderFeedRow(item, i)).join("")
+    : `<div class="empty-note">Nothing crossed the bar this run. No high-severity or outreach-qualified tasks were found.</div>`;
+
+  const macroHtml = macroThemes.length
+    ? macroThemes.map(m => {
+        const conf = (m.confidence || "low").toLowerCase();
+        const cc = { high: "var(--oc-done)", medium: "var(--sev-med)", low: "var(--sev-none)" }[conf] || "var(--sev-none)";
+        return `
+        <div class="macro-card">
+          <div class="macro-top">
+            <span class="macro-dot" style="background:${cc}"></span>
+            <span class="macro-conf" style="color:${cc}">${escapeHtml(capitalize(conf))} confidence</span>
+            <span class="macro-ratio">${escapeHtml((m.pages || []).length + " page" + ((m.pages || []).length === 1 ? "" : "s"))}</span>
+          </div>
+          <div class="macro-title">${escapeHtml(m.title)}</div>
+          <div class="macro-cause">${escapeHtml(m.likely_cause)}</div>
+        </div>`;
+      }).join("")
+    : `<div class="empty-note">No recurring patterns clustered yet.</div>`;
+
+  return `
+  <div class="home-bg">
+    <div class="home-wrap">
+      <div class="home-head">
+        <div>
+          <div class="home-date">${escapeHtml(today)}</div>
+          <h1 class="home-h1">Shubham, a few priorities your radar surfaced</h1>
+        </div>
+        <div class="home-right">
+          <span class="home-lastrun">Last run ${escapeHtml(lastRun)}</span>
+          <span class="icon-btn-square">${ICON_SEARCH_BIG}</span>
+        </div>
+      </div>
+
+      <div class="insight-grid">
+        <div class="insight-card">
+          <span class="insight-icon" style="background:radial-gradient(120% 120% at 30% 25%,color-mix(in srgb,var(--accent) 26%,transparent),color-mix(in srgb,var(--accent) 9%,transparent));color:var(--accent)">${ICON_RADAR}</span>
+          <div>
+            <div class="insight-eyebrow"><b style="font-weight:600">Radar</b> <span style="color:var(--faint)">· Triage</span></div>
+            <div class="insight-body">Across <b style="color:var(--text);font-weight:600">${sweptCount} session${sweptCount === 1 ? "" : "s"}</b>, <b style="color:var(--accent);font-weight:600">${outreachCount} qualified</b> for outreach and ${blockedCount} core action${blockedCount === 1 ? "" : "s"} came back blocked.</div>
+          </div>
+        </div>
+        <div class="insight-card">
+          <span class="insight-icon" style="background:radial-gradient(120% 120% at 30% 25%,color-mix(in srgb,var(--oc-done) 26%,transparent),color-mix(in srgb,var(--oc-done) 8%,transparent));color:var(--oc-done)">${ICON_SIGNAL}</span>
+          <div>
+            <div class="insight-eyebrow"><b style="font-weight:600">Signal</b> <span style="color:var(--faint)">· Confidence</span></div>
+            <div class="insight-body">${lowFpCount} of ${macroThemes.length} pattern${macroThemes.length === 1 ? "" : "s"} read as low false-positive risk this run.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-title-row">
+        <h2 class="section-title">Priorities surfaced for you</h2>
+        <span class="section-count">${feed.length}</span>
+      </div>
+      <div>${feedHtml}</div>
+
+      <div class="patterns-head">
+        <h2>What's breaking for lots of people</h2>
+        <p>Recurring dead / rage-click clusters, last 14 days, named by the model.</p>
+      </div>
+      <div class="macro-grid">${macroHtml}</div>
+    </div>
+  </div>`;
+}
+
+/* ---------------- people ---------------- */
+function renderPeople() {
+  const people = groupByPerson().map(p => {
+    const tasks = p.sessions.flatMap(s => s.tasks || []);
+    const worst = worstSeverity(tasks);
+    const bugs = bugCount(tasks);
+    const mins = p.sessions.map(s => minutesAgo(s.started_at)).filter(m => m != null);
+    const last = mins.length ? Math.min(...mins) : null;
+    const name = personDisplayName(p.sessions[0]);
+    const av = avatarFor(p.key);
+    return { key: p.key, name, initials: initialsOf(name), avBg: av.bg, avFg: av.fg,
+      email: p.sessions[0].person?.email || "", sessCount: p.sessions.length,
+      worst, bugs, last };
+  }).sort((a, b) => SEV_RANK[b.worst] - SEV_RANK[a.worst]);
+
+  const rows = people.length ? people.map(u => `
+    <button class="list-row" data-act="open-person" data-key="${escapeHtml(u.key)}">
+      <span class="col-user">
+        <span class="avatar">${escapeHtml(u.initials)}</span>
+        <span style="min-width:0;overflow:hidden;display:flex;align-items:baseline;gap:8px">
+          <span class="nm">${escapeHtml(u.name)}</span>
+          <span class="meta">${escapeHtml(u.email)}</span>
+        </span>
+      </span>
+      <span class="w-sess">${u.sessCount}</span>
+      <span class="w-sev">${barsSvg(u.worst)}<span class="lbl2">${SEV_TEXT[u.worst]}</span></span>
+      <span class="w-bugs">${u.bugs}</span>
+      <span class="w-last">${relShort(u.last)}</span>
+    </button>`).join("")
+    : `<div class="empty-note">No sessions reviewed yet.</div>`;
+
+  return `
+  <div class="pageheader">
+    <span class="title">People</span>
+    <span class="count">${people.length}</span>
+  </div>
+  <div class="list-subhead">
+    <span style="flex:1">User</span><span style="width:110px">Sessions</span><span style="width:130px">Worst severity</span><span style="width:90px">Bugs</span><span style="width:80px;text-align:right">Last seen</span>
+  </div>
+  <div class="content">${rows}</div>`;
+}
+
+function renderPeopleDetail() {
+  const key = state.selPersonKey;
+  const group = groupByPerson().find(p => p.key === key);
+  if (!group) return `<div class="pageheader"><button class="crumb" data-act="nav" data-route="people">People</button></div><div class="content"><div class="empty-note">Person not found.</div></div>`;
+  const name = personDisplayName(group.sessions[0]);
+  const email = group.sessions[0].person?.email || "no email captured";
+  const role = group.sessions[0].person?.role;
+  const av = avatarFor(key);
+  const tasks = group.sessions.flatMap(s => s.tasks || []);
+  const worst = worstSeverity(tasks);
+  const bugs = bugCount(tasks);
+
+  const sessRows = group.sessions.map(f => {
+    const d = decorateSession(f);
+    return `
+    <button class="mini-row" data-act="open-session" data-id="${escapeHtml(f.session_id)}" data-from="people-detail">
+      <span class="idm">${escapeHtml(f.session_id.slice(0, 10))}</span>
+      <span class="ttl">${escapeHtml(d.firstTitle)}</span>
+      <span class="mini-dots">${d.dots.map(dt => `<span style="background:${dt.color}" title="${escapeHtml(dt.title)}"></span>`).join("")}</span>
+      ${chip(d.sevLabel, SEV_VAR[d.worst])}
+    </button>`;
+  }).join("");
+
+  return `
+  <div class="pageheader">
+    <button class="crumb" data-act="nav" data-route="people">People</button>
+    <span class="sep">/</span>
+    <span class="idmono">${escapeHtml(name)}</span>
+  </div>
+  <div class="content"><div class="contentpad">
+    <div class="pd-head">
+      <span class="avatar lg" style="background:${av.bg};color:${av.fg}">${escapeHtml(initialsOf(name))}</span>
+      <div>
+        <div class="pd-name">${escapeHtml(name)}</div>
+        <div class="pd-meta">${escapeHtml(email)}${role ? " · " + escapeHtml(capitalize(role)) : ""}</div>
+      </div>
+    </div>
+    <div class="stat-strip">
+      <div class="stat-box"><div class="l">Sessions</div><div class="v">${group.sessions.length}</div></div>
+      <div class="stat-box"><div class="l">Bugs found</div><div class="v">${bugs}</div></div>
+      <div class="stat-box"><div class="l">Worst severity</div><div>${chip(SEV_TEXT[worst], SEV_VAR[worst])}</div></div>
+    </div>
+    <div class="section-label">SESSIONS</div>
+    ${sessRows}
+  </div></div>`;
+}
+
+/* ---------------- sessions ---------------- */
+function filteredSessions() {
+  const sf = state.sevFilter, q = (state.search || "").toLowerCase();
+  let list = REPORT.micro_findings.slice();
+  if (sf !== "all") list = list.filter(f => worstSeverity(f.tasks) === sf);
+  if (q) list = list.filter(f => (f.session_id + " " + (f.tasks || []).map(t => t.title + " " + t.goal).join(" ")).toLowerCase().includes(q));
+  return list;
+}
+
+function renderSessions() {
+  const sevTabDefs = [["all", "All"], ["high", "High"], ["medium", "Med"], ["low", "Low"]];
+  const list = filteredSessions();
+  const rows = list.length ? list.map(f => {
+    const d = decorateSession(f);
+    return `
+    <button class="sess-row" data-act="open-session" data-id="${escapeHtml(f.session_id)}" data-from="sessions">
+      ${barsSvg(d.worst)}
+      <span class="sess-id">${escapeHtml(f.session_id.slice(0, 10))}</span>
+      ${d.outreach ? `<span class="sess-dot" title="Outreach recommended"></span>` : ""}
+      <span class="sess-title">${escapeHtml(d.firstTitle)}</span>
+      <span class="sess-more">${escapeHtml(d.otherLabel)}</span>
+      <span class="sess-dots">${d.dots.map(dt => `<span style="background:${dt.color}" title="${escapeHtml(dt.title)}"></span>`).join("")}</span>
+      <span class="sess-ratio">${d.bugsRatio}</span>
+      <span class="sess-counts">${d.countsLabel}</span>
+      <span class="sess-rel">${relShort(d.min)}</span>
+    </button>`;
+  }).join("") : `<div class="empty-note">No sessions match this filter.</div>`;
+
+  return `
+  <div class="pageheader">
+    <span class="title">Sessions</span>
+    <span class="count">${list.length}</span>
+    <div class="sess-toolbar">
+      <div class="search-box">${ICON_SEARCH}<input id="sessSearch" type="text" placeholder="Filter…" value="${escapeHtml(state.search)}"/></div>
+      <div class="sev-tabs">${sevTabDefs.map(([v, l]) => `<button class="sev-tab${state.sevFilter === v ? " active" : ""}" data-act="sev-filter" data-val="${v}">${l}</button>`).join("")}</div>
+    </div>
+  </div>
+  <div class="list-subhead">${ICON_ARROW}<span style="font-weight:600;color:var(--text)">Reviewed this run</span><span>${REPORT.micro_findings.length}</span></div>
+  <div class="content">${rows}</div>`;
+}
+
+/* ---------------- session detail ---------------- */
+function taskDeepLink(f, task) {
+  const events = f.events || [];
+  if (!events.length || !task.key_timestamp) return null;
+  const start = new Date(events[0].timestamp).getTime();
+  let match = events.find(e => e.timestamp === task.key_timestamp);
+  if (!match) {
+    const target = new Date(task.key_timestamp).getTime();
+    if (isNaN(target)) return null;
+    match = events.reduce((best, e) => {
+      const d = Math.abs(new Date(e.timestamp).getTime() - target);
+      return d < best.d ? { e, d } : best;
+    }, { e: null, d: Infinity }).e;
+  }
+  if (!match) return null;
+  const offsetSec = Math.max(0, Math.floor((new Date(match.timestamp).getTime() - start) / 1000));
+  return `${f.replay_url}?t=${offsetSec}`;
+}
+
+function renderCorrectForm(f, ti, t) {
+  const c = state.correction;
+  const cur = c.values;
+  const notes = c.notes || {};
+  const changed = Object.keys(cur).filter(k => cur[k] !== origVal(t, k));
+  const canSave = changed.length > 0 && changed.every(k => notes[k] && notes[k].trim());
+  const fieldsHtml = CORRECTION_DEFS.map(([key, label, opts]) => {
+    const isChanged = cur[key] !== origVal(t, key);
+    const optsHtml = opts.map(v => `<button class="correct-opt${cur[key] === v ? " on" : ""}" data-act="corr-opt" data-field="${key}" data-value="${v}">${escapeHtml(capitalize(v))}</button>`).join("");
+    const noteHtml = isChanged ? `
+      <div class="correct-note-row">
+        ${ICON_CORNER_ARROW}
+        <input id="note-${key}" class="correct-note-input" data-note-field="${key}" value="${escapeHtml(notes[key] || "")}" placeholder="What made you change this to &quot;${escapeHtml(capitalize(cur[key]))}&quot;? Context helps future tagging…"/>
+      </div>` : "";
+    return `
+      <div>
+        <div class="correct-field-row">
+          <span class="correct-field-label">${label}</span>
+          <div class="correct-opts">${optsHtml}</div>
+        </div>
+        ${noteHtml}
+      </div>`;
+  }).join("");
+  return `
+  <div class="correct-form">
+    <div class="correct-form-head">CORRECT THE MODEL'S READ</div>
+    <div class="correct-form-desc">Change a label, then tell us what it missed, each change trains future tagging.</div>
+    <div class="correct-fields">
+      ${fieldsHtml}
+      <div class="correct-actions">
+        <button class="correct-save" data-act="save-correction" style="${canSave ? "" : "opacity:.4;pointer-events:none"}">Save correction</button>
+        <button class="correct-cancel" data-act="toggle-correct" data-task="${ti}">Cancel</button>
+        <span class="change-hint">${changed.length ? (canSave ? changed.length + " change" + (changed.length > 1 ? "s" : "") + " ready" : "add context for each change") : "change a label to begin"}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function sessionTabDefs(f) {
+  const tabs = [{ key: "events", label: "Raw Event Timeline", icon: "" }];
+  if (f.ai_summary) tabs.push({ key: "ai_summary", label: "AI Summary", icon: ICON_SPARKLE });
+  if (f.vision_observations && f.vision_observations.length) tabs.push({ key: "vision", label: "Vision", icon: ICON_SCAN });
+  if (f.error_issues && f.error_issues.length) tabs.push({ key: "errors", label: "Error Tracking", icon: ICON_BUG });
+  if (f.console_evidence && f.console_evidence.length) tabs.push({ key: "console", label: "Console / Network", icon: ICON_TERMINAL });
+  return tabs;
+}
+
+function renderSessionTabStrip(f) {
+  const tabs = sessionTabDefs(f);
+  if (tabs.length <= 1) return "";
+  const active = tabs.some(t => t.key === state.sessionTab) ? state.sessionTab : "events";
+  return `<div class="sd-tabs">${tabs.map(t => `<button class="sd-tab-btn${t.key === active ? " active" : ""}" data-act="session-tab" data-tab="${t.key}">${t.icon}${escapeHtml(t.label)}</button>`).join("")}</div>`;
+}
+
+function renderAiSummaryTab(f) {
+  return `<div class="evidence-card"><div style="font-weight:600;margin-bottom:6px">PostHog Session Summary</div>${escapeHtml(f.ai_summary)}</div>`;
+}
+function renderVisionTab(f) {
+  return f.vision_observations.map(o => `<div class="evidence-card"><div style="font-weight:600;margin-bottom:4px">${escapeHtml(o.title || "Observation")}</div>${escapeHtml(o.description || "")}</div>`).join("");
+}
+function renderErrorsTab(f) {
+  return f.error_issues.map(i => `<div class="evidence-card"><div style="font-weight:600;margin-bottom:4px">${escapeHtml(i.name || i.title || "Issue")}</div><pre style="margin:6px 0 0;font-family:'JetBrains Mono',monospace;font-size:11.5px;white-space:pre-wrap;color:var(--muted)">${escapeHtml(i.stack || i.description || "")}</pre></div>`).join("");
+}
+function renderConsoleTab(f) {
+  return f.console_evidence.map(c => `<div class="evidence-card"><span style="font-family:'JetBrains Mono',monospace;color:${c.level === "error" ? "var(--sev-high)" : "var(--muted)"}">${escapeHtml(c.text || "")}</span></div>`).join("");
+}
+
+function renderCapturedMoments(f, ti, t) {
+  const media = t.media || [];
+  if (!media.length) return "";
+  const key = `${f.session_id}:${ti}`;
+  const shown = !!state.expandedMedia[key];
+  const grid = media.map((m, mi) => `
+    <div class="moment-tile">
+      <div class="moment-ph"></div>
+      <div class="moment-fade"></div>
+      <span class="moment-ts">${escapeHtml(m.ts || "")}</span>
+      ${m.isVid ? `<span class="moment-dur">${escapeHtml(m.dur || "")}</span><button class="moment-play" data-act="moment-open" data-task="${ti}" data-media="${mi}" title="Play clip">${ICON_PLAY_FILL}</button>` : ""}
+    </div>`).join("");
+  return `
+  <div style="margin-top:13px">
+    <button class="moment-toggle" data-act="toggle-media" data-key="${escapeHtml(key)}"><span style="display:inline-flex;transition:transform .15s ease;${shown ? "transform:rotate(90deg)" : ""}">${ICON_CHEVRON(11)}</span>${ICON_CAMERA}CAPTURED MOMENTS<span style="color:var(--faint);font-family:'JetBrains Mono',monospace">${media.length}</span></button>
+    ${shown ? `<div class="moment-grid">${grid}</div>` : ""}
+  </div>`;
+}
+
+function renderSessionDetail() {
+  const f = REPORT.micro_findings.find(x => x.session_id === state.selSession);
+  if (!f) return `<div class="pageheader"><button class="crumb" data-act="nav" data-route="sessions">Sessions</button></div><div class="content"><div class="empty-note">Session not found.</div></div>`;
+  const tasks = f.tasks || [];
+  const c = f.triage_counts || {};
+  const name = personDisplayName(f);
+  const email = f.person?.email || "no email captured";
+  const av = avatarFor(personKey(f));
+  const worst = worstSeverity(tasks);
+  const [bar1, bar2, bar3] = bars(worst);
+  const outreach = f.recommended_outreach;
+  const primaryIdx = primaryTaskIndex(f);
+  const openIdx = state.openTask == null ? primaryIdx : state.openTask;
+
+  const backLabels = { home: "Home", sessions: "Sessions", "people-detail": name };
+  const backLabel = backLabels[state.backTo] || "Back";
+
+  const primaryTitle = tasks[primaryIdx]?.title || f.session_id;
+  const subline = `${name} · ${email} · ${tasks.length} task${tasks.length === 1 ? "" : "s"} · ${relLabel(minutesAgo(f.started_at))}`;
+
+  const outreachOpen = !!state.outreachOpen;
+  const draftText = state.draftText == null ? (outreach ? outreach.message : "") : state.draftText;
+  const outreachHtml = outreach ? `
+    <div class="outreach-box">
+      <button class="outreach-header" data-act="outreach-toggle">
+        <span class="outreach-icon-tile">${ICON_MAIL}</span>
+        <span class="outreach-tag">Customer Outreach</span>
+        <span class="outreach-header-title">${escapeHtml(tasks[outreach.task_index]?.title || "")}</span>
+        ${chip("Recommended", "var(--accent)")}
+        <span class="outreach-chev${outreachOpen ? " open" : ""}">${ICON_CHEVRON(15)}</span>
+      </button>
+      ${outreachOpen ? `
+      <div class="outreach-panel">
+        <div class="outreach-to-row">
+          <span style="color:var(--faint)">To</span>
+          <span class="avatar" style="width:20px;height:20px;font-size:9.5px;background:${av.bg};color:${av.fg}">${escapeHtml(initialsOf(name))}</span>
+          <span style="font-weight:600">${escapeHtml(name)}</span>
+          <span style="font-family:'JetBrains Mono',monospace;color:var(--faint)">${escapeHtml(email)}</span>
+        </div>
+        <textarea id="draftBox" class="outreach-draft">${escapeHtml(draftText)}</textarea>
+        <div class="outreach-actions">
+          <button class="outreach-send" data-act="outreach-send">${ICON_SEND}Send</button>
+          <button class="outreach-discard" data-act="outreach-toggle">Discard</button>
+          <span style="margin-left:auto;font-size:11px;color:var(--faint)">Draft · editable</span>
+        </div>
+      </div>` : ""}
+    </div>` : `
+    <div class="no-outreach">${ICON_INFO}Nothing in this session cleared the bar for proactive outreach.</div>`;
+
+  const taskCards = tasks.map((t, ti) => {
+    const sev = sevOf(t), oc = ocOf(t);
+    const deepLink = taskDeepLink(f, t);
+    const isOut = !!(outreach && outreach.task_index === ti);
+    const cluster = !isOut && oc === "abandoned";
+    const tileIcon = isOut ? ICON_MAIL : (cluster ? ICON_CLUSTER : ICON_WARN);
+    const tileBg = isOut ? "color-mix(in srgb,var(--accent) 12%,transparent)" : "var(--bg-sub)";
+    const tileFg = isOut ? "var(--accent)" : "var(--muted)";
+    const bugIcon = t.real_bug ? ICON_BUG : ICON_CHECK_CIRCLE;
+    const open = openIdx === ti;
+    const evOpen = open && state.evidenceOpen;
+    const isCorrecting = state.correction && state.correction.session_id === f.session_id && state.correction.task_index === ti;
+    return `
+    <div class="task-card">
+      <button class="task-header" data-act="task-toggle" data-task="${ti}">
+        <span class="task-tile" style="background:${tileBg};color:${tileFg}">${tileIcon}</span>
+        <span class="task-bug-icon" title="${t.real_bug ? "Confirmed bug" : "Not a bug"}">${bugIcon}</span>
+        <span class="task-header-title">${escapeHtml(t.title)}</span>
+        ${chip(OC_TEXT[oc], OC_VAR[oc])}
+        <span class="task-header-sev"><span style="font-size:12.5px;font-weight:500;color:${SEV_VAR[sev]}">${SEV_TEXT[sev]}</span><span style="width:7px;height:7px;border-radius:50%;background:${SEV_VAR[sev]}"></span></span>
+        <span class="task-chev${open ? " open" : ""}">${ICON_CHEVRON(15)}</span>
+      </button>
+      ${open ? `
+      <div class="task-panel">
+        <div class="task-panel-top">
+          <div class="task-goal-line"><span class="faint">Goal ·</span> ${escapeHtml(t.goal || "not captured")}</div>
+          <div class="task-icon-actions">
+            ${deepLink ? `<a class="icon-btn accent" href="${escapeHtml(deepLink)}" target="_blank" rel="noopener" title="Watch this moment in the replay">${ICON_PLAY_FILL}</a>` : ""}
+            <button class="icon-btn${isCorrecting ? " on" : ""}" data-act="toggle-correct" data-task="${ti}" title="Correct the labels &amp; give the model context">${ICON_EDIT}</button>
+          </div>
+        </div>
+        <p class="task-narrative2">${escapeHtml(t.narrative)}</p>
+        <div class="task-status-row">
+          <span class="dot-item"><span class="dot" style="background:${t.real_bug ? "var(--sev-high)" : "var(--faint)"}"></span>${t.real_bug ? "Real bug" : "Not a bug"}</span>
+          <span class="dot-item"><span class="dot" style="background:${t.customer_reachable ? "var(--accent)" : "var(--faint)"}"></span>${t.customer_reachable ? "Reachable" : "Not reachable"}</span>
+        </div>
+        ${renderCapturedMoments(f, ti, t)}
+        <button class="evidence-toggle" data-act="evidence-toggle"><span class="${evOpen ? "open" : ""}" style="display:inline-flex;transition:transform .15s ease;${evOpen ? "transform:rotate(90deg)" : ""}">${ICON_CHEVRON(13)}</span>Evidence</button>
+        ${evOpen ? `<div class="evidence-block">${escapeHtml(t.evidence)}</div>` : ""}
+      </div>
+      ${isCorrecting ? renderCorrectForm(f, ti, t) : ""}` : ""}
+    </div>`;
+  }).join("");
+
+  const events = f.events || [];
+  const timelineHtml = events.length ? events.map(ev => {
+    const color = EV_VAR[ev.event] || "var(--ev-nav)";
+    const isRoutine = ev.event === "$pageview" || ev.event === "$autocapture";
+    const tag = EV_TAG[ev.event] || "evt";
+    const label = EV_LABEL[ev.event] || ev.event;
+    const text = ev.el_text ? `"${escapeHtml(ev.el_text)}"` : "";
+    const glow = isRoutine ? "none" : `0 0 0 3px color-mix(in srgb,${color} 18%,transparent)`;
+    return `
+    <div class="tl-row${isRoutine ? " dim" : ""}">
+      <span class="tl-dot" style="border:2px solid ${color};box-shadow:${glow}"></span>
+      <span class="tl-time">${escapeHtml(formatTime(ev.timestamp))}</span>
+      <span class="tl-tag" style="color:${color};border:1px solid color-mix(in srgb,${color} 40%,transparent)">${tag}</span>
+      <span class="tl-label">${label}${text ? " " + text : ""} <span class="tl-path">${escapeHtml(ev.pathname || "")}</span></span>
+    </div>`;
+  }).join("") : `<div class="empty-note">No raw events stored for this session.</div>`;
+
+  const dotsHtml = tasks.map(t => `<span style="width:8px;height:8px;border-radius:50%;background:${OC_VAR[ocOf(t)]}" title="${escapeHtml(OC_TEXT[ocOf(t)])}"></span>`).join("");
+
+  return `
+  <div class="pageheader">
+    <button class="crumb" data-act="back-session">${ICON_BACK}${escapeHtml(backLabel)}</button>
+    <span class="sep">/</span>
+    <span class="idmono">${escapeHtml(f.session_id.slice(0, 12))}</span>
+  </div>
+  <div class="content"><div class="sd-page"><div class="sd-layout">
+    <div class="sd-main">
+      <div class="sd-eyebrow">SESSION REVIEW</div>
+      <h1 class="sd-h1">${escapeHtml(primaryTitle)}</h1>
+      <div class="sd-subline">${escapeHtml(subline)}</div>
+      ${outreachHtml}
+      <div class="tasks-head-row"><span class="lbl">TASKS</span><span class="cnt">${tasks.length}</span><span class="tasks-head-rule"></span></div>
+      ${taskCards}
+      ${renderSessionTabStrip(f)}
+      ${(() => {
+        const active = sessionTabDefs(f).some(t => t.key === state.sessionTab) ? state.sessionTab : "events";
+        if (active === "ai_summary") return `<div class="sd-tab-body">${renderAiSummaryTab(f)}</div>`;
+        if (active === "vision") return `<div class="sd-tab-body">${renderVisionTab(f)}</div>`;
+        if (active === "errors") return `<div class="sd-tab-body">${renderErrorsTab(f)}</div>`;
+        if (active === "console") return `<div class="sd-tab-body">${renderConsoleTab(f)}</div>`;
+        return `
+        <div class="section-label" style="margin-top:${sessionTabDefs(f).length > 1 ? "0" : "24px"}">RAW EVENT TIMELINE</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-bottom:15px">The ground truth the verdicts were built from: dead / rage / exception highlighted, routine navigation dimmed.</div>
+        <div class="timeline-wrap"><div class="timeline-spine"></div>${timelineHtml}</div>`;
+      })()}
+    </div>
+    <aside class="sd-rail">
+      <a class="rail-replay-link" href="${escapeHtml(f.replay_url)}" target="_blank" rel="noopener">${ICON_PLAY}Open PostHog replay</a>
+      <div class="rail-panel">
+        <div class="rail-panel-head">PROPERTIES</div>
+        <div class="rail-row"><span class="k">User</span><span class="v"><span class="avatar" style="width:20px;height:20px;font-size:9.5px;background:${av.bg};color:${av.fg}">${escapeHtml(initialsOf(name))}</span><span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(name)}</span></span></div>
+        <div class="rail-row"><span class="k">Severity</span><span class="v"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="9" width="3" height="5" rx="1" fill="${bar1}"/><rect x="6" y="6" width="3" height="8" rx="1" fill="${bar2}"/><rect x="11" y="2" width="3" height="12" rx="1" fill="${bar3}"/></svg>${SEV_TEXT[worst]}</span></div>
+        <div class="rail-row"><span class="k">Outreach</span>${chip(outreach ? "Recommended" : "None", outreach ? "var(--accent)" : "var(--faint)")}</div>
+        <div class="rail-row"><span class="k">Tasks</span><span class="v"><span style="font-family:'JetBrains Mono',monospace">${tasks.length}</span><span style="display:flex;gap:4px">${dotsHtml}</span></span></div>
+        <div class="rail-row"><span class="k">Session</span><span class="v" style="font-family:'JetBrains Mono',monospace;color:var(--muted)">${escapeHtml(f.session_id)}</span></div>
+      </div>
+      <div class="rail-panel">
+        <div class="rail-panel-head">SIGNALS</div>
+        <div class="rail-signal-row"><span class="lbl"><span class="dot" style="background:var(--ev-dead)"></span>Dead clicks</span><span class="val" style="color:var(--ev-dead)">${c.dead_clicks ?? 0}</span></div>
+        <div class="rail-signal-row"><span class="lbl"><span class="dot" style="background:var(--ev-rage)"></span>Rage clicks</span><span class="val" style="color:var(--ev-rage)">${c.rage_clicks ?? 0}</span></div>
+        <div class="rail-signal-row"><span class="lbl"><span class="dot" style="background:var(--ev-exc)"></span>Exceptions</span><span class="val" style="color:var(--ev-exc)">${c.exceptions ?? 0}</span></div>
+      </div>
+    </aside>
+  </div></div></div>`;
+}
+
+/* ---------------- settings ---------------- */
+function highlightPrompt(s) {
+  return escapeHtml(s || "(no report yet, run the pipeline)").replace(/(\{\{|\}\}|\{data\})/g, '<span class="ph">$1</span>');
+}
+/* ---------------- settings: connections ---------------- */
+const POSTHOG_MARK = `<span class="conn-empty-icon"><span style="width:5px;height:9px;border-radius:2px;background:#F9BD2B"></span><span style="width:5px;height:15px;border-radius:2px;background:#1D4AFF"></span><span style="width:5px;height:12px;border-radius:2px;background:#F54E00"></span></span>`;
+const CONN_STEPS = [
+  "Validating key",
+  "Resolving project",
+  "Using selected project",
+  "Pulling project settings",
+  "Discovering events",
+  "Discovering person properties",
+  "Agent mapping identity + conventions",
+];
+const CHIP_STATE = { active: ["var(--oc-done)", "Active"], idle: ["var(--sev-med)", "Unused"], off: ["var(--faint)", "Off"], unknown: ["var(--faint)", "Unverified"] };
+
+function connChipStyle(state) {
+  const [c] = CHIP_STATE[state] || CHIP_STATE.unknown;
+  return `background:color-mix(in srgb,${c} 14%,transparent);color:${c}`;
+}
+function connChipLabel(state) { return (CHIP_STATE[state] || CHIP_STATE.unknown)[1]; }
+
+function connStart() { state.connFlow = "form"; state.connApiKey = ""; state.connError = null; render(); }
+function connCancel() { state.connFlow = CONNECTIONS.length ? "connected" : "idle"; state.connError = null; render(); }
+
+async function connRun() {
+  if (!state.connApiKey.trim()) return;
+  state.connFlow = "running"; state.connStep = 0; state.connError = null; render();
+  try {
+    const res = await fetch("/api/connections/resolve", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ api_key: state.connApiKey.trim() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Could not validate this key.");
+    state.connRegion = data.region;
+    state.connStep = 2;
+    if (data.projects.length === 1) {
+      state.connProjectId = data.projects[0].id;
+      state.connProjectName = data.projects[0].name;
+      render();
+      await runDiscovery();
+    } else {
+      state.connCandidates = data.projects;
+      state.connFlow = "picking";
+      render();
+    }
+  } catch (e) {
+    state.connFlow = "form"; state.connError = e.message; render();
+  }
+}
+
+async function pickProject(id, name) {
+  state.connProjectId = id; state.connProjectName = name; state.connFlow = "running";
+  render();
+  await runDiscovery();
+}
+
+async function runDiscovery() {
+  try {
+    const res = await fetch("/api/connections/discover", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ api_key: state.connApiKey.trim(), region: state.connRegion, project_id: state.connProjectId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Discovery failed.");
+    state.connStep = 7;
+    state.connDraft = data;
+    state.connFlow = "summary";
+    render();
+  } catch (e) {
+    state.connFlow = "form"; state.connError = e.message; render();
+  }
+}
+
+async function saveConnection() {
+  const res = await fetch("/api/connections/save", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      api_key: state.connApiKey.trim(), region: state.connRegion, project_id: state.connProjectId,
+      config_map: state.connDraft.configMap, identity: state.connDraft.identity,
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) { flash(data.error || "Could not save connection"); return; }
+  state.connFlow = "connected"; state.connApiKey = ""; state.connDraft = null; state.identityEditing = false;
+  await loadData();
+  flash("PostHog connection saved");
+  render();
+}
+
+async function resyncConnection(id) {
+  flash("Re-syncing…");
+  const res = await fetch(`/api/connections/${id}/resync`, { method: "POST" });
+  const data = await res.json();
+  if (!res.ok) { flash(data.error || "Re-sync failed"); return; }
+  await loadData();
+  flash("Re-synced — config refreshed");
+  render();
+}
+
+function toggleConnGroup(name) { state.expandedGroups[name] = !state.expandedGroups[name]; render(); }
+function identityToggle() { state.identityEditing = !state.identityEditing; render(); }
+
+function syncedLabel(iso) {
+  if (!iso) return "just now";
+  const m = Math.round((Date.now() - new Date(iso + "Z").getTime()) / 60000);
+  if (m < 1) return "just now";
+  return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
+}
+
+function renderConnChecklist() {
+  const picking = state.connFlow === "picking";
+  return CONN_STEPS.map((label, i) => {
+    if (picking && i >= 2) return "";
+    const isDone = i < state.connStep;
+    const isRunning = state.connFlow === "running" && i === state.connStep;
+    const dotClass = isDone ? "done" : isRunning ? "running" : "pending";
+    const dot = isDone
+      ? `<span class="conn-check-dot done">${ICON_CHECKMARK}</span>`
+      : `<span class="conn-check-dot ${dotClass}"></span>`;
+    return `<div class="conn-check-row" style="${isDone || isRunning ? "" : "opacity:.6"}">${dot}<span>${escapeHtml(label)}</span></div>`;
+  }).join("");
+}
+
+function renderConnConfigCard(configMap, identity, opts) {
+  const { showSaveBar, identityEditable, onIdentityOpt } = opts;
+  const identityText = identity.email
+    ? `Using <b>${escapeHtml(identity.email)}</b>${identity.name ? ` / ${escapeHtml(identity.name)}` : ""}${identity.role ? ` / ${escapeHtml(identity.role)}` : ""} to identify users`
+    : "No custom identity properties found — sessions will be anonymous";
+  const identityOpts = (configMap.personProps || []).filter(p => !p.startsWith("$"));
+  const apiAccessGroup = configMap.groups.find(g => g.name === "API Access");
+  const queryScopeMissing = apiAccessGroup && apiAccessGroup.items.some(it => it.name === "Query (HogQL)" && it.state !== "active");
+  const scopeWarningHtml = queryScopeMissing ? `
+    <div style="padding:13px 22px;background:color-mix(in srgb,var(--sev-high) 10%,transparent);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+      <span style="width:7px;height:7px;border-radius:50%;background:var(--sev-high);flex:none"></span>
+      <span style="font-size:12.5px;color:var(--sev-high);font-weight:500">This key is missing the <code>query</code> scope. The pipeline cannot run until it's added, see "API Access" below.</span>
+    </div>` : "";
+  const groupsHtml = configMap.groups.map(g => {
+    const open = !!state.expandedGroups[g.name];
+    const activeCount = g.items.filter(it => it.state === "active").length;
+    return `
+    <div class="conn-group">
+      <button class="conn-group-btn" data-act="conn-toggle-group" data-group="${escapeHtml(g.name)}">
+        ${ICON_CHEVRON(15)}
+        <span style="font-weight:600;font-size:13.5px">${escapeHtml(g.name)}</span>
+        <span style="margin-left:auto;font-size:11.5px;color:var(--faint)">${activeCount}/${g.items.length} active</span>
+      </button>
+      ${open ? `<div class="conn-group-body">${g.items.map(it => `
+        <div style="display:flex;align-items:flex-start;gap:12px;font-size:13px">
+          <span class="conn-item-chip" style="${connChipStyle(it.state)}">${connChipLabel(it.state)}</span>
+          <span style="min-width:0"><span style="font-weight:500">${escapeHtml(it.name)}</span><span style="display:block;font-size:12px;color:${it.flag ? "var(--sev-med)" : "var(--muted)"};line-height:1.45;margin-top:1px">${escapeHtml(it.note)}</span></span>
+        </div>`).join("")}</div>` : ""}
+    </div>`;
+  }).join("");
+
+  return `
+  <div class="conn-card">
+    <div class="conn-card-head">
+      <div style="min-width:0;flex:1">
+        <div style="font-weight:700;font-size:19px;letter-spacing:-.02em">${escapeHtml(configMap.projectName || "")}</div>
+        <div style="font-size:12.5px;color:var(--muted);margin-top:3px;font-family:'JetBrains Mono',monospace">${escapeHtml((state.connRegion || "").toUpperCase())} · ${escapeHtml(configMap.timezone || "")} · ${escapeHtml(configMap.region_meta || "")}</div>
+      </div>
+      ${showSaveBar ? `<span style="flex:none;display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:7px;background:color-mix(in srgb,var(--sev-med) 14%,transparent);color:var(--sev-med);font-size:11.5px;font-weight:600">Review before saving</span>` : ""}
+    </div>
+    ${scopeWarningHtml}
+    <div class="conn-identity">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+        <span style="font-size:11px;font-weight:600;letter-spacing:.03em;color:var(--accent)">IDENTITY MAPPING · AGENT DECIDED</span>
+      </div>
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+        <span style="font-size:14px;font-weight:500">${identityText}</span>
+        ${identityEditable ? `<button data-act="identity-toggle" style="font-size:12.5px;color:var(--accent);font-weight:500">change</button>` : ""}
+      </div>
+      ${state.identityEditing ? `<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+        ${identityOpts.map(p => `<button data-act="identity-pick" data-prop="${escapeHtml(p)}" style="padding:6px 11px;border-radius:8px;border:1px solid ${identity.email === p ? "var(--accent)" : "var(--border-str)"};font-size:12px"><span style="font-family:'JetBrains Mono',monospace;font-weight:600">${escapeHtml(p)}</span></button>`).join("")}
+      </div>` : ""}
+    </div>
+    <div class="conn-quick">
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:var(--muted)">Custom events</span><span style="margin-left:auto;font-weight:500">${configMap.customEvents.length}</span></div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:var(--muted)">System events</span><span style="margin-left:auto;font-weight:500">${configMap.systemEventCount}</span></div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:var(--muted)">Person properties</span><span style="margin-left:auto;font-weight:500">${(configMap.personProps || []).length}</span></div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:13px"><span style="color:var(--muted)">Timezone</span><span style="margin-left:auto;font-weight:500">${escapeHtml(configMap.timezone || "")}</span></div>
+    </div>
+    <div class="conn-events">
+      <div style="display:flex;flex-wrap:wrap;gap:7px">
+        ${configMap.customEvents.map(e => `<span class="conn-event-chip">${escapeHtml(e)}</span>`).join("")}
+        <span style="font-size:11.5px;color:var(--faint);align-self:center">+${configMap.systemEventCount} system events</span>
+      </div>
+    </div>
+    ${groupsHtml}
+    ${showSaveBar ? `<div class="conn-savebar">
+      <span style="font-size:13px;color:var(--muted)">Looks right? The agent's picks are live the moment you save.</span>
+      <div style="margin-left:auto;display:flex;gap:9px">
+        <button class="btn-outline" data-act="conn-cancel">Cancel</button>
+        <button data-act="conn-save" style="padding:9px 17px;border-radius:9px;background:var(--accent);color:var(--accent-fg);font-size:13px;font-weight:600">Save connection</button>
+      </div>
+    </div>` : ""}
+  </div>`;
+}
+
+function renderConnectionsTab() {
+  if (state.connFlow === "idle" && !CONNECTIONS.length) {
+    return `<div class="conn-empty">${POSTHOG_MARK}
+      <div style="font-weight:600;font-size:15.5px;margin-top:4px">Connect your PostHog project</div>
+      <button data-act="conn-start" style="margin-top:12px;display:flex;align-items:center;gap:7px;padding:9px 15px;border-radius:9px;background:var(--accent);color:var(--accent-fg);font-size:13px;font-weight:600">${ICON_PLUS}Add PostHog connection</button>
+    </div>`;
+  }
+  if (state.connFlow === "form") {
+    return `<div class="conn-form-card">
+      <div style="font-weight:600;font-size:15px">Add PostHog connection</div>
+      <div style="font-size:12.5px;color:var(--muted);margin:5px 0 18px;line-height:1.5">Paste a personal or project API key. We'll auto-resolve the region and project, no IDs to look up.</div>
+      ${state.connError ? `<div style="font-size:12.5px;color:var(--sev-high);margin-bottom:12px">${escapeHtml(state.connError)}</div>` : ""}
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:7px">PostHog API key</label>
+      <input id="connApiKeyInput" class="conn-input" type="text" placeholder="phx_..." spellcheck="false" value="${escapeHtml(state.connApiKey)}"/>
+      <div style="display:flex;gap:9px;margin-top:18px">
+        <button data-act="conn-run" style="padding:9px 17px;border-radius:9px;background:var(--accent);color:var(--accent-fg);font-size:13px;font-weight:600;opacity:${state.connApiKey.trim() ? 1 : .45}">Connect</button>
+        <button class="btn-outline" data-act="conn-cancel">Cancel</button>
+      </div>
+    </div>`;
+  }
+  if (state.connFlow === "running" || state.connFlow === "picking") {
+    return `<div class="conn-running-card">
+      <div style="font-weight:600;font-size:15px">Connecting to PostHog</div>
+      <div style="font-size:12.5px;color:var(--muted);margin:5px 0 20px">Resolving your project — the agent inspects config, events, and identity as it goes.</div>
+      <div style="display:flex;flex-direction:column;gap:13px">${renderConnChecklist()}</div>
+      ${state.connFlow === "picking" ? `<div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border)">
+        <div style="font-size:12.5px;font-weight:600;margin-bottom:3px">This key sees more than one project</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Pick which one to connect, everything else resolves on its own.</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          ${state.connCandidates.map(p => `<button class="conn-pick-row" data-act="conn-pick" data-id="${p.id}" data-name="${escapeHtml(p.name)}"><span style="width:8px;height:8px;border-radius:2px;background:#1D4AFF;flex:none"></span><span style="min-width:0"><span style="display:block;font-weight:600;font-size:13px">${escapeHtml(p.name)}</span></span></button>`).join("")}
+        </div>
+      </div>` : ""}
+    </div>`;
+  }
+  if (state.connFlow === "summary" && state.connDraft) {
+    return renderConnConfigCard(state.connDraft.configMap, state.connDraft.identity, { showSaveBar: true, identityEditable: true });
+  }
+  // connected
+  const active = CONNECTIONS.find(c => c.id === state.activeConnId) || CONNECTIONS[0];
+  const rowsHtml = CONNECTIONS.map(c => `
+    <div class="conn-source-row">
+      ${POSTHOG_MARK}
+      <div style="min-width:0"><div style="font-weight:600;font-size:13.5px">${escapeHtml(c.project_name || c.project_id)}</div><div style="font-size:11.5px;color:var(--faint)">PostHog · ${escapeHtml((c.region || "").toUpperCase())}</div></div>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:16px">
+        <span style="display:flex;align-items:center;gap:6px;font-size:12px;color:${c.status === "healthy" ? "var(--oc-done)" : "var(--sev-high)"}"><span style="width:7px;height:7px;border-radius:50%;background:currentColor"></span>${c.status === "healthy" ? "Healthy" : "Error"}</span>
+        <span style="font-size:12px;color:var(--faint)">Synced ${syncedLabel(c.last_synced_at)}</span>
+        <button class="btn-outline" data-act="conn-resync" data-id="${c.id}">${ICON_REFRESH}Re-sync</button>
+        <button class="btn-outline" data-act="conn-add-another">Add another</button>
+      </div>
+    </div>`).join("");
+  const identity = active ? { email: active.identity_email_prop, name: active.identity_name_prop, role: active.identity_role_prop } : {};
+  return `
+    <div class="section-label">CONNECTED SOURCES</div>
+    ${rowsHtml}
+    ${active && active.config ? renderConnConfigCard(active.config, identity, { showSaveBar: false, identityEditable: true }) : ""}
+  `;
+}
+
+/* ---------------- settings: company knowledge ---------------- */
+async function knowledgeFill() {
+  if (state.knowledgeFilling || !state.knowledgeUrl.trim()) return;
+  state.knowledgeFilling = true; render();
+  try {
+    const res = await fetch("/api/company-knowledge/autofill", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domain: state.knowledgeUrl.trim() }),
+    });
+    const data = await res.json();
+    if (res.ok) state.knowledgeDesc = data.description;
+    else flash(data.error || "Could not draft a description");
+  } catch (e) {
+    flash("Could not draft a description");
+  }
+  state.knowledgeFilling = false; render();
+}
+
+async function saveKnowledge() {
+  const res = await fetch("/api/company-knowledge", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ domain: state.knowledgeUrl.trim(), description: state.knowledgeDesc.trim() }),
+  });
+  if (res.ok) flash("Company knowledge saved — analysis prompts updated");
+  else flash("Could not save");
+}
+
+/* ---------------- settings: goals ---------------- */
+function goalToggleForm() {
+  state.goalFormOpen = !state.goalFormOpen;
+  state.goalPurpose = ""; state.goalDesc = ""; state.goalTags = "";
+  render();
+}
+
+async function goalSave() {
+  const purpose = state.goalPurpose.trim();
+  if (!purpose) return;
+  const tags = state.goalTags.split(",").map(t => t.trim()).filter(Boolean);
+  const res = await fetch("/api/goals", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ purpose, description: state.goalDesc.trim(), tags }),
+  });
+  if (res.ok) {
+    state.goalFormOpen = false; state.goalPurpose = ""; state.goalDesc = ""; state.goalTags = "";
+    await loadData();
+    flash("Goal added");
+    render();
+  } else {
+    flash("Could not save goal");
+  }
+}
+
+async function goalRemove(id) {
+  const res = await fetch(`/api/goals/${id}`, { method: "DELETE" });
+  if (res.ok) { await loadData(); render(); }
+  else flash("Could not remove goal");
+}
+
+function renderGoalsTab() {
+  const formHtml = state.goalFormOpen ? `
+    <div style="border:1px solid var(--accent);border-radius:14px;padding:20px;max-width:640px;margin-bottom:18px;background:color-mix(in srgb,var(--accent) 4%,transparent)">
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:7px">Purpose</label>
+      <input id="goalPurposeInput" class="conn-input" style="font-family:inherit" type="text" spellcheck="false" placeholder="e.g. Import contacts from a CSV" value="${escapeHtml(state.goalPurpose)}"/>
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin:16px 0 7px">Description</label>
+      <textarea id="goalDescInput" class="know-textarea" style="min-height:96px" placeholder="What does success look like, and which steps or screens are involved?">${escapeHtml(state.goalDesc)}</textarea>
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin:16px 0 7px">Tags (comma-separated)</label>
+      <input id="goalTagsInput" class="conn-input" style="font-family:inherit" type="text" spellcheck="false" placeholder="e.g. onboarding, import" value="${escapeHtml(state.goalTags)}"/>
+      <div style="display:flex;align-items:center;gap:9px;margin-top:15px">
+        <button data-act="goal-save" style="padding:8px 15px;border-radius:9px;font-size:12.5px;font-weight:600;color:var(--accent-fg);background:var(--accent);opacity:${state.goalPurpose.trim() ? 1 : .4};pointer-events:${state.goalPurpose.trim() ? "auto" : "none"}">Add goal</button>
+        <button data-act="goal-toggle-form" style="padding:8px 14px;border:1px solid var(--border-str);border-radius:9px;font-size:12.5px;font-weight:500;color:var(--text)">Cancel</button>
+      </div>
+    </div>` : "";
+
+  const emptyHtml = !GOALS.length && !state.goalFormOpen ? `
+    <div style="border:1px dashed var(--border-str);border-radius:14px;padding:36px 22px;max-width:640px;text-align:center;color:var(--faint)">
+      <div style="font-size:13.5px;font-weight:500;color:var(--muted);margin-bottom:4px">No goals yet</div>
+      <div style="font-size:12.5px">Add the outcomes that matter and the agent will start scoring sessions against them.</div>
+    </div>` : "";
+
+  const goalsHtml = GOALS.map(g => {
+    const isAuto = g.source === "auto";
+    const badgeIcon = isAuto ? ICON_SPARKLE : ICON_USER;
+    const badgeLabel = isAuto ? "Auto" : "User";
+    const tagsHtml = (g.tags || []).map(t => `<span class="conn-event-chip">${escapeHtml(t)}</span>`).join("");
+    return `
+    <div style="border:1px solid var(--border);border-radius:12px;padding:15px 17px;background:var(--bg-elev)">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <span style="width:30px;height:30px;flex:none;border-radius:8px;background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);display:grid;place-items:center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".6" fill="currentColor"/></svg></span>
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+            <span style="font-weight:600;font-size:13.5px">${escapeHtml(g.purpose)}</span>
+            <span style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;font-size:10.5px;font-weight:600;background:var(--bg-sub);color:var(--faint)">${badgeIcon}${badgeLabel}</span>
+          </div>
+          ${g.description ? `<div style="font-size:12.5px;color:var(--muted);line-height:1.55;margin-bottom:${g.tags && g.tags.length ? "8" : "0"}px">${escapeHtml(g.description)}</div>` : ""}
+          ${tagsHtml ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${tagsHtml}</div>` : ""}
+        </div>
+        <button data-act="goal-remove" data-id="${g.id}" title="Remove goal" style="flex:none;width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:var(--faint)" style-hover="background:var(--bg-hover);color:var(--sev-high)">${ICON_TRASH}</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  return `
+  <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px;max-width:640px">
+    <div style="flex:1;min-width:0">
+      <div class="section-label" style="margin-bottom:4px">GOALS</div>
+      <div style="font-size:12.5px;color:var(--muted);line-height:1.5">The outcomes your users come to accomplish. The agent matches each session against these, a goal with a clear purpose sharpens whether a task was truly blocked or just abandoned.</div>
+    </div>
+    <button data-act="goal-toggle-form" style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 13px;border:1px solid ${state.goalFormOpen ? "var(--accent)" : "var(--border-str)"};border-radius:9px;font-size:12.5px;font-weight:500;color:${state.goalFormOpen ? "var(--accent)" : "var(--text)"}">${ICON_PLUS}New goal</button>
+  </div>
+  ${formHtml}
+  ${emptyHtml}
+  <div style="display:flex;flex-direction:column;gap:10px;max-width:640px">${goalsHtml}</div>`;
+}
+
+function renderKnowledgeTab() {
+  return `
+  <div class="section-label" style="margin-bottom:4px">COMPANY KNOWLEDGE</div>
+  <div style="font-size:12.5px;color:var(--muted);margin-bottom:18px;max-width:560px;line-height:1.5">Feeds directly into the analysis prompts, this is what replaces generic assumptions about your product with what you actually build.</div>
+  <div class="know-card">
+    <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:7px">Domain</label>
+    <div style="display:flex;gap:9px">
+      <input id="knowledgeUrlInput" class="conn-input" style="flex:1;font-family:inherit" type="text" spellcheck="false" value="${escapeHtml(state.knowledgeUrl)}"/>
+      <button data-act="knowledge-fill" style="display:flex;align-items:center;gap:7px;padding:0 15px;border-radius:10px;border:1px solid var(--border-str);font-size:13px;font-weight:500" ${state.knowledgeFilling ? "disabled" : ""}>
+        ${state.knowledgeFilling ? `<span class="spinner" style="border-color:color-mix(in srgb,var(--accent) 30%,transparent);border-top-color:var(--accent)"></span>` : ICON_SPARKLE}
+        ${state.knowledgeFilling ? "" : "Auto-fill from domain"}
+      </button>
+    </div>
+    ${state.knowledgeFilling ? `<div style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12.5px;color:var(--muted)"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse-dot 1.4s infinite"></span>Agent reading ${escapeHtml(state.knowledgeUrl)} and drafting a description…</div>` : ""}
+    <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin:18px 0 7px">Description</label>
+    <textarea id="knowledgeDescInput" class="know-textarea" placeholder="What does your product do? Who uses it, and what are the core actions that matter? The agent can draft this for you from your domain.">${escapeHtml(state.knowledgeDesc)}</textarea>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:16px">
+      <span style="font-size:12px;color:var(--faint)">Agent proposes, you can edit every word before it goes live.</span>
+      <button data-act="knowledge-save" style="padding:9px 17px;border-radius:9px;background:var(--accent);color:var(--accent-fg);font-size:13px;font-weight:600">Save</button>
+    </div>
+  </div>`;
+}
+
+/* ---------------- settings: pipeline & model (existing content) ---------------- */
+function renderPipelineTab() {
+  const prompts = [
+    { name: "Macro pass: theme naming", tag: "macro", body: PROMPTS.theme },
+    { name: "Micro pass: per-session verdict", tag: "micro", body: PROMPTS.session },
+  ];
+  const kvHtml = PIPELINE.map(([k, v]) => `<div class="kv-row"><span class="kv-k">${escapeHtml(k)}</span><span class="kv-v">${escapeHtml(v)}</span></div>`).join("");
+  const promptsHtml = prompts.map(p => `
+    <div class="prompt-card">
+      <div class="prompt-head"><span class="dot"></span><span class="nm">${escapeHtml(p.name)}</span><span class="tag">${escapeHtml(p.tag)}</span></div>
+      <pre class="prompt-body">${highlightPrompt(p.body)}</pre>
+    </div>`).join("");
+  const sorted = [...CORRECTIONS].sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)));
+  const corrHtml = sorted.length ? sorted.map(cItem => `
+    <div class="corr-entry">
+      <div class="corr-top"><span class="ttl">${escapeHtml(cItem.task_title || "")}</span><span class="sid">${escapeHtml(cItem.session_id)}</span><span class="ts">${escapeHtml(cItem.timestamp ? new Date(cItem.timestamp).toLocaleString() : "")}</span></div>
+      <div class="corr-change"><span class="fld">${escapeHtml(cItem.field)}</span><span class="from">${escapeHtml(String(cItem.from))}</span>${ICON_ARROW}<span class="to">${escapeHtml(String(cItem.to))}</span></div>
+      <div class="corr-reason">${escapeHtml(cItem.reason)}</div>
+    </div>`).join("")
+    : `<div class="empty-note">No corrections logged yet. Use "Correct labels" on any task in Sessions.</div>`;
+
+  return `
+    <div class="section-label">PIPELINE</div>
+    <div class="kv-table">${kvHtml}</div>
+    <div class="section-label" style="margin-bottom:4px">MODEL PROMPTS</div>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:12px">Pulled live from the running pipeline, verbatim, not a paraphrase.</div>
+    ${promptsHtml}
+    <div class="corr-head-row">
+      <div><div class="section-label" style="margin-bottom:3px">CONTEXT CORRECTIONS LOG</div><div style="font-size:12.5px;color:var(--muted)">Every reviewer correction, newest first.</div></div>
+      <button class="btn-outline" style="margin-left:auto" data-act="export-corrections">${ICON_EXPORT}Export JSON</button>
+    </div>
+    <div class="corr-log">${corrHtml}</div>`;
+}
+
+function renderSettings() {
+  const tab = state.settingsTab;
+  const tabBtn = (key, label) => `<button class="settings-tab-btn${tab === key ? " active" : ""}" data-act="settings-tab" data-tab="${key}">${label}</button>`;
+  const body = tab === "connections" ? renderConnectionsTab() : tab === "knowledge" ? renderKnowledgeTab() : tab === "goals" ? renderGoalsTab() : renderPipelineTab();
+  return `
+  <div class="pageheader"><span class="title">Settings</span></div>
+  <div class="content"><div class="contentpad" style="max-width:900px">
+    <div class="settings-tabs">${tabBtn("connections", "Connections")}${tabBtn("knowledge", "Company knowledge")}${tabBtn("pipeline", "Pipeline &amp; model")}${tabBtn("goals", "Goals")}</div>
+    ${body}
+  </div></div>`;
+}
+
+/* ---------------- main render ---------------- */
+function renderMainContent() {
+  switch (state.route) {
+    case "home": return renderHome();
+    case "people": return renderPeople();
+    case "people-detail": return renderPeopleDetail();
+    case "sessions": return renderSessions();
+    case "session-detail": return renderSessionDetail();
+    case "settings": return renderSettings();
+    default: return "";
+  }
+}
+
+function render() {
+  document.documentElement.setAttribute("data-theme", getTheme());
+  const app = document.getElementById("app");
+  if (!AUTH.email) {
+    app.innerHTML = renderLoginShell() + (state.toast ? `<div class="toast">${ICON_CHECKMARK}${escapeHtml(state.toast)}</div>` : "");
+    syncProfileMenu();
+    return;
+  }
+  const isHome = state.route === "home";
+  app.innerHTML = `
+    <div class="app">
+      ${renderSidebar()}
+      <main class="main">${isHome ? renderHome() : renderMainContent()}</main>
+    </div>
+    ${state.toast ? `<div class="toast">${ICON_CHECKMARK}${escapeHtml(state.toast)}</div>` : ""}
+  `;
+  syncProfileMenu();
+}
+
+/* ---------------- actions ---------------- */
+function withFocusPreserved(fn) {
+  return (...args) => {
+    const active = document.activeElement;
+    const id = active && active.id;
+    const selStart = active && "selectionStart" in active ? active.selectionStart : null;
+    const selEnd = active && "selectionEnd" in active ? active.selectionEnd : null;
+    fn(...args);
+    render();
+    if (id) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.focus();
+        if (selStart != null && el.setSelectionRange) { try { el.setSelectionRange(selStart, selEnd); } catch (e) {} }
+      }
+    }
+  };
+}
+
+let toastTimer = null;
+function flash(msg) {
+  state.toast = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { state.toast = null; render(); }, 2600);
+}
+
+function openSession(id, from) {
+  state.route = "session-detail";
+  state.selSession = id;
+  state.backTo = from;
+  state.correction = null;
+  state.openTask = null;
+  state.evidenceOpen = false;
+  state.outreachOpen = false;
+  state.draftText = null;
+  state.sessionTab = "events";
+  render();
+}
+
+function primaryTaskIndex(f) {
+  if (f.recommended_outreach) return f.recommended_outreach.task_index;
+  const tasks = f.tasks || [];
+  let best = 0, bestRank = -1;
+  tasks.forEach((t, i) => { const r = SEV_RANK[sevOf(t)]; if (r > bestRank) { bestRank = r; best = i; } });
+  return best;
+}
+
+function toggleCorrection(f, ti, t) {
+  const c = state.correction;
+  if (c && c.session_id === f.session_id && c.task_index === ti) { state.correction = null; render(); return; }
+  state.correction = {
+    session_id: f.session_id, task_index: ti,
+    values: { outcome: ocOf(t), severity: sevOf(t), real_bug: t.real_bug ? "true" : "false", customer_reachable: t.customer_reachable ? "true" : "false" },
+    notes: {},
+  };
+  render();
+}
+
+async function saveCorrection() {
+  const c = state.correction;
+  if (!c) return;
+  const f = REPORT.micro_findings.find(x => x.session_id === c.session_id);
+  const t = f.tasks[c.task_index];
+  const notes = c.notes || {};
+  const changed = Object.keys(c.values).filter(k => c.values[k] !== origVal(t, k));
+  if (!changed.length) return;
+  if (!changed.every(k => notes[k] && notes[k].trim())) return;
+  for (const field of changed) {
+    const reason = notes[field].trim();
+    const record = { session_id: f.session_id, task_index: c.task_index, task_title: t.title, task_goal: t.goal, field, from: origVal(t, field), to: c.values[field], reason };
+    const res = await fetch("/api/corrections", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(record) });
+    if (!res.ok) { flash("Saving the correction failed. Try again."); return; }
+    record.timestamp = new Date().toISOString();
+    CORRECTIONS.unshift(record);
+  }
+  changed.forEach(field => {
+    if (field === "real_bug") t.real_bug = c.values.real_bug === "true";
+    else if (field === "customer_reachable") t.customer_reachable = c.values.customer_reachable === "true";
+    else t[field] = c.values[field];
+  });
+  state.correction = null;
+  flash(changed.length + " correction" + (changed.length > 1 ? "s" : "") + " saved");
+  render();
+}
+
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  const act = el.dataset.act;
+  if (act === "nav") { state.route = el.dataset.route; if (el.dataset.route === "sessions") state.backTo = "sessions"; render(); }
+  else if (act === "toggle-collapse") { state.collapsed = !state.collapsed; localStorage.setItem("br_collapsed", state.collapsed ? "1" : "0"); render(); }
+  else if (act === "set-theme") { setTheme(el.dataset.theme); }
+  else if (act === "open-session") { openSession(el.dataset.id, el.dataset.from); }
+  else if (act === "open-person") { state.route = "people-detail"; state.selPersonKey = el.dataset.key; render(); }
+  else if (act === "back-session") { state.route = state.backTo; render(); }
+  else if (act === "sev-filter") { state.sevFilter = el.dataset.val; render(); }
+  else if (act === "toggle-correct") {
+    const f = REPORT.micro_findings.find(x => x.session_id === state.selSession);
+    const ti = Number(el.dataset.task);
+    toggleCorrection(f, ti, f.tasks[ti]);
+  }
+  else if (act === "corr-opt") {
+    if (!state.correction) return;
+    state.correction.values[el.dataset.field] = el.dataset.value;
+    render();
+  }
+  else if (act === "save-correction") { saveCorrection(); }
+  else if (act === "export-corrections") { window.open("/api/corrections", "_blank"); }
+  else if (act === "task-toggle") {
+    const f = REPORT.micro_findings.find(x => x.session_id === state.selSession);
+    const ti = Number(el.dataset.task);
+    const openIdx = state.openTask == null ? primaryTaskIndex(f) : state.openTask;
+    state.openTask = openIdx === ti ? -1 : ti;
+    state.evidenceOpen = false;
+    render();
+  }
+  else if (act === "evidence-toggle") { state.evidenceOpen = !state.evidenceOpen; render(); }
+  else if (act === "toggle-media") { const k = el.dataset.key; state.expandedMedia[k] = !state.expandedMedia[k]; render(); }
+  else if (act === "moment-open") { flash("Playback isn't wired up yet, capture is UI-only for now."); }
+  else if (act === "outreach-toggle") { state.outreachOpen = !state.outreachOpen; render(); }
+  else if (act === "outreach-send") { state.outreachOpen = false; flash("Sending isn't wired to a channel yet, copy this message manually for now."); render(); }
+  else if (act === "session-tab") { state.sessionTab = el.dataset.tab; render(); }
+  else if (act === "settings-tab") { state.settingsTab = el.dataset.tab; render(); }
+  else if (act === "conn-start") { connStart(); }
+  else if (act === "conn-cancel") { connCancel(); }
+  else if (act === "conn-run") { connRun(); }
+  else if (act === "conn-pick") { pickProject(el.dataset.id, el.dataset.name); }
+  else if (act === "conn-toggle-group") { toggleConnGroup(el.dataset.group); }
+  else if (act === "identity-toggle") { identityToggle(); }
+  else if (act === "identity-pick") {
+    const prop = el.dataset.prop;
+    if (state.connDraft) state.connDraft.identity.email = prop;
+    else { const c = CONNECTIONS.find(x => x.id === state.activeConnId) || CONNECTIONS[0]; if (c) { c.identity_email_prop = prop; fetch(`/api/connections/${c.id}/identity`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: prop, name: c.identity_name_prop, role: c.identity_role_prop }) }); } }
+    state.identityEditing = false;
+    render();
+  }
+  else if (act === "conn-save") { saveConnection(); }
+  else if (act === "conn-resync") { resyncConnection(Number(el.dataset.id)); }
+  else if (act === "conn-add-another") { connStart(); }
+  else if (act === "knowledge-fill") { knowledgeFill(); }
+  else if (act === "knowledge-save") { saveKnowledge(); }
+  else if (act === "goal-toggle-form") { goalToggleForm(); }
+  else if (act === "goal-save") { goalSave(); }
+  else if (act === "goal-remove") { goalRemove(Number(el.dataset.id)); }
+});
+
+document.addEventListener("input", e => {
+  if (e.target.dataset && e.target.dataset.otpIndex !== undefined) {
+    onOtpInput(Number(e.target.dataset.otpIndex), e.target.value);
+    return;
+  }
+  if (e.target.id === "loginEmailInput") {
+    loginState.email = e.target.value;
+    loginState.emailError = "";
+    return;
+  }
+  withFocusPreserved(inner => {
+    if (inner.target.id === "sessSearch") { state.search = inner.target.value; }
+    else if (inner.target.dataset.noteField && state.correction) {
+      state.correction.notes = state.correction.notes || {};
+      state.correction.notes[inner.target.dataset.noteField] = inner.target.value;
+    }
+    else if (inner.target.id === "draftBox") { state.draftText = inner.target.value; }
+    else if (inner.target.id === "connApiKeyInput") { state.connApiKey = inner.target.value; state.connError = null; }
+    else if (inner.target.id === "knowledgeUrlInput") { state.knowledgeUrl = inner.target.value; }
+    else if (inner.target.id === "knowledgeDescInput") { state.knowledgeDesc = inner.target.value; }
+    else if (inner.target.id === "goalPurposeInput") { state.goalPurpose = inner.target.value; }
+    else if (inner.target.id === "goalDescInput") { state.goalDesc = inner.target.value; }
+    else if (inner.target.id === "goalTagsInput") { state.goalTags = inner.target.value; }
+  })(e);
+});
+
+/* ---------------- auth / login ---------------- */
+const AUTH = { email: null };
+const loginState = {
+  mode: "signin", step: "email", email: "", emailError: "",
+  sending: false, otp: ["", "", "", "", "", ""], otpError: "", verifying: false, resendIn: 0,
+};
+let resendTimer = null;
+
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/auth/me");
+    if (res.ok) { AUTH.email = (await res.json()).email; return true; }
+  } catch (e) {}
+  AUTH.email = null;
+  return false;
+}
+
+async function logout() {
+  try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) {}
+  AUTH.email = null;
+  loginState.step = "email";
+  loginState.mode = "signin";
+  loginState.email = "";
+  loginState.otp = ["", "", "", "", "", ""];
+  REPORT = { generated_at: null, macro_themes: [], micro_findings: [] };
+  render();
+}
+
+function otpResendRowHtml() {
+  const s = loginState;
+  return s.resendIn === 0
+    ? `Didn't get it? <button data-act="otp-resend">Resend code</button>`
+    : `Resend code in <span style="color:var(--text);font-weight:500">${s.resendIn}s</span>`;
+}
+
+function startResendTimer() {
+  clearInterval(resendTimer);
+  loginState.resendIn = 30;
+  resendTimer = setInterval(() => {
+    loginState.resendIn -= 1;
+    if (loginState.resendIn <= 0) { clearInterval(resendTimer); loginState.resendIn = 0; }
+    const row = document.getElementById("otpResendRow");
+    if (row) row.innerHTML = otpResendRowHtml();
+    else render();
+  }, 1000);
+}
+
+function focusOtpBox(i) {
+  requestAnimationFrame(() => {
+    const el = document.getElementById("otp-" + i);
+    if (el) { el.focus(); el.select && el.select(); }
+  });
+}
+
+function onOtpInput(i, rawVal) {
+  const val = (rawVal || "").replace(/\D/g, "");
+  const otp = loginState.otp.slice();
+  if (val.length > 1) {
+    const chars = val.slice(0, 6).split("");
+    for (let j = 0; j < 6; j++) otp[j] = chars[j] || "";
+    loginState.otp = otp;
+    loginState.otpError = "";
+    render();
+    focusOtpBox(Math.min(chars.length, 5));
+    return;
+  }
+  otp[i] = val;
+  loginState.otp = otp;
+  loginState.otpError = "";
+  render();
+  if (val && i < 5) focusOtpBox(i + 1);
+}
+
+function onOtpKeydown(i, e) {
+  if (e.key === "Backspace" && !loginState.otp[i] && i > 0) {
+    e.preventDefault();
+    focusOtpBox(i - 1);
+  }
+}
+
+async function submitLoginEmail(e) {
+  e.preventDefault();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginState.email)) {
+    loginState.emailError = "Enter a valid email address.";
+    render();
+    return;
+  }
+  loginState.emailError = "";
+  loginState.sending = true;
+  render();
+  try {
+    const res = await fetch("/api/auth/request-otp", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: loginState.email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    loginState.sending = false;
+    if (!res.ok) { loginState.emailError = data.error || "Something went wrong. Try again."; render(); return; }
+    loginState.step = "otp";
+    loginState.otp = ["", "", "", "", "", ""];
+    loginState.otpError = "";
+    render();
+    startResendTimer();
+    focusOtpBox(0);
+  } catch (err) {
+    loginState.sending = false;
+    loginState.emailError = "Network error. Try again.";
+    render();
+  }
+}
+
+async function verifyLoginOtp() {
+  const code = loginState.otp.join("");
+  if (code.length < 6) return;
+  loginState.verifying = true;
+  render();
+  try {
+    const res = await fetch("/api/auth/verify-otp", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: loginState.email, code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    loginState.verifying = false;
+    if (!res.ok) {
+      loginState.otpError = data.error || "That code doesn't match.";
+      loginState.otp = ["", "", "", "", "", ""];
+      render();
+      focusOtpBox(0);
+      return;
+    }
+    clearInterval(resendTimer);
+    loginState.step = "done";
+    AUTH.email = data.email;
+    render();
+    setTimeout(async () => { await loadData(); render(); }, 1100);
+  } catch (err) {
+    loginState.verifying = false;
+    loginState.otpError = "Network error. Try again.";
+    render();
+  }
+}
+
+function backToLoginEmail() {
+  clearInterval(resendTimer);
+  loginState.step = "email";
+  loginState.otpError = "";
+  render();
+}
+
+function ssoStub(provider) {
+  flash(provider + " sign-in isn't wired up yet, use email for now.");
+}
+
+function renderLoginEmailStep(signup) {
+  const s = loginState;
+  return `
+  <div>
+    <div class="login-tabs">
+      <button class="login-tab${!signup ? " active" : ""}" data-act="login-tab" data-mode="signin">Sign in</button>
+      <button class="login-tab${signup ? " active" : ""}" data-act="login-tab" data-mode="signup">Sign up</button>
+    </div>
+    <div class="login-title">${signup ? "Create your account" : "Welcome back"}</div>
+    <div class="login-subtitle">${signup ? "Start surfacing user friction in minutes." : "Sign in to pick up where your radar left off."}</div>
+    <div class="sso-stack">
+      <button class="sso-btn" data-act="sso-stub" data-provider="Google"><span class="sso-icon">${ICON_GOOGLE}</span>Continue with Google</button>
+      <button class="sso-btn" data-act="sso-stub" data-provider="Microsoft"><span class="sso-icon">${ICON_MICROSOFT}</span>Continue with Microsoft</button>
+    </div>
+    <div class="login-divider"><span class="line"></span><span class="lbl">or with email</span><span class="line"></span></div>
+    <form id="loginEmailForm">
+      <label class="login-label">Work email</label>
+      <div class="login-field${s.emailError ? " err" : ""}">
+        ${ICON_MAIL_OUTLINE}
+        <input id="loginEmailInput" type="email" placeholder="you@company.com" autocomplete="email" value="${escapeHtml(s.email)}"/>
+      </div>
+      ${s.emailError ? `<div class="login-error">${ICON_ALERT}${escapeHtml(s.emailError)}</div>` : ""}
+      <button type="submit" class="login-primary-btn${s.sending ? " disabled" : ""}">
+        ${s.sending ? `<span class="spinner"></span>` : `<span>${signup ? "Create account" : "Send login code"}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`}
+      </button>
+    </form>
+    <p class="login-terms">By continuing you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>.</p>
+  </div>`;
+}
+
+function renderLoginOtpStep() {
+  const s = loginState;
+  const complete = s.otp.join("").length === 6;
+  return `
+  <div>
+    <button class="otp-back" data-act="otp-back">${ICON_BACK}Back</button>
+    <div class="otp-icon-tile">${ICON_MAIL_TILE}</div>
+    <div class="login-title">Check your inbox</div>
+    <div class="login-subtitle">We sent a 6-digit code to <b style="color:var(--text);font-weight:500">${escapeHtml(s.email)}</b>.</div>
+    <div class="otp-cells">
+      ${s.otp.map((d, i) => `<input class="otp-cell${s.otpError ? " err" : (d ? " filled" : "")}" id="otp-${i}" data-otp-index="${i}" inputmode="numeric" maxlength="1" value="${escapeHtml(d)}"/>`).join("")}
+    </div>
+    ${s.otpError ? `<div class="login-error">${ICON_ALERT}${escapeHtml(s.otpError)}</div>` : ""}
+    <button class="otp-verify-btn${complete ? "" : " disabled"}" data-act="otp-verify">
+      ${s.verifying ? `<span class="spinner"></span>` : `<span>Verify &amp; continue</span>`}
+    </button>
+    <div class="otp-resend-row" id="otpResendRow">
+      ${otpResendRowHtml()}
+    </div>
+  </div>`;
+}
+
+function renderLoginDoneStep(signup) {
+  return `
+  <div class="done-wrap">
+    <div class="done-check">${ICON_BIG_CHECK}</div>
+    <div class="login-title">${signup ? "Account created" : "You’re in"}</div>
+    <div class="done-sub">Taking you to your radar…</div>
+  </div>`;
+}
+
+function renderLoginShell() {
+  const signup = loginState.mode === "signup";
+  const theme = getTheme();
+  return `
+  <div class="login-shell">
+    <aside class="login-panel">
+      <div class="login-panel-wash"></div>
+      <div class="login-panel-fade"></div>
+      <div class="login-panel-inner">
+        <div class="login-brand-row">
+          <span class="login-brand-tile">${ICON_LOGO}</span>
+          <span class="login-brand-name">Bug Radar</span>
+        </div>
+        <div class="login-pitch">
+          <div class="login-pulse-chip"><span class="login-pulse-dot"></span>Watching dreamteam's PostHog for real friction</div>
+          <h1 class="login-h1">The friction your users hit, surfaced before they churn.</h1>
+          <p class="login-pitch-sub">Bug Radar reads real sessions, flags the dead clicks and rage taps that matter, and drafts the follow-up for you.</p>
+          <div class="login-features">
+            <div class="login-feature-row"><span class="login-feature-icon">${ICON_CLOCK}</span><span>Catch rage clicks the day they happen, not next quarter</span></div>
+            <div class="login-feature-row"><span class="login-feature-icon">${ICON_DRAFT}</span><span>Auto-drafted outreach so no frustrated user goes unheard</span></div>
+            <div class="login-feature-row"><span class="login-feature-icon">${ICON_SHIELD}</span><span>Human-in-the-loop corrections that sharpen every sweep</span></div>
+          </div>
+        </div>
+        <div class="login-trust"><span>Events only</span><span style="opacity:.5">·</span><span>No session video read</span><span style="opacity:.5">·</span><span>Data stays in PostHog</span></div>
+      </div>
+    </aside>
+    <main class="login-main">
+      <div class="login-theme-toggle">
+        <button class="login-theme-btn${theme === "light" ? " active" : ""}" data-act="set-theme" data-theme="light" title="Light">${ICON_SUN}</button>
+        <button class="login-theme-btn${theme === "dark" ? " active" : ""}" data-act="set-theme" data-theme="dark" title="Dark">${ICON_MOON}</button>
+      </div>
+      <div class="login-card">
+        ${loginState.step === "email" ? renderLoginEmailStep(signup) : ""}
+        ${loginState.step === "otp" ? renderLoginOtpStep() : ""}
+        ${loginState.step === "done" ? renderLoginDoneStep(signup) : ""}
+      </div>
+    </main>
+  </div>`;
+}
+
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  const act = el.dataset.act;
+  if (act === "login-tab") { loginState.mode = el.dataset.mode; loginState.emailError = ""; render(); }
+  else if (act === "sso-stub") { ssoStub(el.dataset.provider); }
+  else if (act === "otp-back") { backToLoginEmail(); }
+  else if (act === "otp-verify") { verifyLoginOtp(); }
+  else if (act === "otp-resend") { submitLoginEmail({ preventDefault(){} }); }
+  else if (act === "toggle-profile-menu") { e.stopImmediatePropagation(); state.profileMenuOpen = !state.profileMenuOpen; render(); }
+  else if (act === "view-profile") { state.profileMenuOpen = false; flash("Profile page coming soon"); }
+  else if (act === "logout") { state.profileMenuOpen = false; logout(); }
+});
+
+document.addEventListener("click", e => {
+  if (!state.profileMenuOpen) return;
+  if (e.target.closest("#profileMenuTrigger") || e.target.closest("#profileMenuPortal")) return;
+  state.profileMenuOpen = false;
+  render();
+});
+
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && state.profileMenuOpen) {
+    state.profileMenuOpen = false;
+    render();
+  }
+});
+
+document.addEventListener("submit", e => {
+  if (e.target.id === "loginEmailForm") submitLoginEmail(e);
+});
+
+document.addEventListener("keydown", e => {
+  if (e.target.dataset && e.target.dataset.otpIndex !== undefined) {
+    onOtpKeydown(Number(e.target.dataset.otpIndex), e);
+  }
+});
+
+async function init() {
+  document.documentElement.setAttribute("data-theme", getTheme());
+  const authed = await checkAuth();
+  if (authed) await loadData();
+  render();
+}
+init();
+</script>

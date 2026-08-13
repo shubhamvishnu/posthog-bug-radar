@@ -1,0 +1,90 @@
+CREATE TABLE IF NOT EXISTS reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  generated_at TEXT NOT NULL,
+  macro_themes TEXT NOT NULL,
+  micro_findings TEXT NOT NULL,
+  theme_prompt TEXT,
+  session_prompt TEXT,
+  owner_email TEXT,
+  connection_id INTEGER,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS corrections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT DEFAULT (datetime('now')),
+  session_id TEXT NOT NULL,
+  task_index INTEGER NOT NULL,
+  task_title TEXT,
+  task_goal TEXT,
+  field TEXT NOT NULL,
+  from_value TEXT,
+  to_value TEXT,
+  reason TEXT NOT NULL,
+  owner_email TEXT,
+  connection_id INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT UNIQUE NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL,
+  code TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  consumed INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS connections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  region TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  project_name TEXT,
+  timezone TEXT,
+  encrypted_api_key TEXT NOT NULL,
+  iv TEXT NOT NULL,
+  identity_email_prop TEXT,
+  identity_name_prop TEXT,
+  identity_role_prop TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  last_error TEXT,
+  last_synced_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS connection_config (
+  connection_id INTEGER PRIMARY KEY REFERENCES connections(id),
+  config_json TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS company_knowledge (
+  owner_email TEXT PRIMARY KEY,
+  domain TEXT,
+  description TEXT,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  purpose TEXT NOT NULL,
+  description TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
+  source TEXT NOT NULL DEFAULT 'user',
+  created_at TEXT DEFAULT (datetime('now'))
+);
