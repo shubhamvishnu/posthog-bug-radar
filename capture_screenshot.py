@@ -51,7 +51,7 @@ def fetch_blob(host, project_id, api_key, session_id, blob_key):
 def parse_rrweb_lines(raw_text):
     """Each line is a JSON array: [window_id, event]. Decompress any gzip'd `data`."""
     events = []
-    for line in raw_text.strip().splitlines():
+    for line in raw_text.strip().split("\n"):
         if not line.strip():
             continue
         _window_id, event = json.loads(line)
