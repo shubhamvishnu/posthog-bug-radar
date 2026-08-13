@@ -12,16 +12,21 @@ on:
       connection_id:
         required: true
         type: string
-      owner_email:
-        required: true
-        type: string
       task_index:
         required: true
         type: string
 
+permissions:
+  contents: read
+
+concurrency:
+  group: capture-${{ inputs.session_id }}-${{ inputs.task_index }}
+  cancel-in-progress: false
+
 jobs:
   capture:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,7 +39,6 @@ jobs:
             --session-id "${{ inputs.session_id }}" \
             --key-timestamp "${{ inputs.key_timestamp }}" \
             --connection-id "${{ inputs.connection_id }}" \
-            --owner-email "${{ inputs.owner_email }}" \
             --task-index "${{ inputs.task_index }}"
         env:
           BUGRADAR_API_SECRET: ${{ secrets.BUGRADAR_API_SECRET }}

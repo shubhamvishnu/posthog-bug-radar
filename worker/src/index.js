@@ -321,20 +321,12 @@ async function mergeMediaIntoTask(env, ownerEmail, sessionId, taskIndex, mediaEn
   const finding = micro.find(f => f.session_id === sessionId);
   const task = finding && finding.tasks && finding.tasks[taskIndex];
   if (!task) return false;
+  if (task.key_timestamp && task.key_timestamp !== mediaEntry.ts) return false;
   task.media = task.media || [];
   task.media.push(mediaEntry);
-  await env.DB.prepare(
-    `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(
-    new Date().toISOString(),
-    base.macro_themes,
-    JSON.stringify(micro),
-    base.theme_prompt,
-    base.session_prompt,
-    ownerEmail,
-    base.connection_id
-  ).run();
+  await env.DB.prepare("UPDATE reports SET micro_findings = ? WHERE id = ?")
+    .bind(JSON.stringify(micro), base.id)
+    .run();
   return true;
 }
 
@@ -537,15 +529,16 @@ export default {
     if (pathname === "/api/pipeline/media" && request.method === "POST") {
       if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
       const sessionId = url.searchParams.get("session_id");
-      const taskIndex = Number(url.searchParams.get("task_index"));
+      const taskIndexRaw = url.searchParams.get("task_index");
+      const taskIndex = Number(taskIndexRaw);
       const ownerEmail = url.searchParams.get("owner_email");
       const ts = url.searchParams.get("ts") || "";
-      if (!sessionId || Number.isNaN(taskIndex) || !ownerEmail) {
+      if (!sessionId || taskIndexRaw === null || taskIndexRaw === "" || !Number.isInteger(taskIndex) || taskIndex < 0 || !ownerEmail) {
         return json({ error: "session_id, task_index, owner_email required" }, 400);
       }
       const bytes = await request.arrayBuffer();
       if (!bytes.byteLength) return json({ error: "empty body" }, 400);
-      const key = `media/${sessionId}/${taskIndex}/${crypto.randomUUID()}.png`;
+      const key = `media/${encodeURIComponent(ownerEmail)}/${sessionId}/${taskIndex}/${crypto.randomUUID()}.png`;
       await env.MEDIA.put(key, bytes, { httpMetadata: { contentType: "image/png" } });
       const merged = await mergeMediaIntoTask(env, ownerEmail, sessionId, taskIndex, { ts, isImg: true, url: `/api/media/${key}` });
       return json({ ok: true, url: `/api/media/${key}`, merged });
@@ -555,9 +548,17 @@ export default {
     if (mediaMatch && request.method === "GET") {
       const email = await getSessionEmail(request, env);
       if (!email) return json({ error: "not authenticated" }, 401);
-      const obj = await env.MEDIA.get(mediaMatch[1]);
+      const key = mediaMatch[1];
+      const keyOwner = key.split("/")[1];
+      if (!keyOwner || decodeURIComponent(keyOwner) !== email) return json({ error: "not found" }, 404);
+      const obj = await env.MEDIA.get(key);
       if (!obj) return json({ error: "not found" }, 404);
-      return new Response(obj.body, { headers: { "content-type": obj.httpMetadata?.contentType || "image/png" } });
+      return new Response(obj.body, {
+        headers: {
+          "content-type": obj.httpMetadata?.contentType || "image/png",
+          "cache-control": "private, max-age=31536000, immutable",
+        },
+      });
     }
 
     if (pathname === "/api/prompts" && request.method === "GET") {

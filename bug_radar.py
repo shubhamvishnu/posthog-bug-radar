@@ -88,7 +88,7 @@ def fetch_goals(worker_url, secret, owner_email):
     return resp.json()
 
 
-def trigger_capture(session_id, key_timestamp, connection_id, owner_email, task_index):
+def trigger_capture(session_id, key_timestamp, connection_id, task_index):
     """Fire-and-forget: dispatches the GitHub Actions capture workflow. Never
     raises, a failure here must not affect the pipeline's own report push."""
     try:
@@ -98,7 +98,6 @@ def trigger_capture(session_id, key_timestamp, connection_id, owner_email, task_
                 "-f", f"session_id={session_id}",
                 "-f", f"key_timestamp={key_timestamp}",
                 "-f", f"connection_id={connection_id}",
-                "-f", f"owner_email={owner_email}",
                 "-f", f"task_index={task_index}",
             ],
             capture_output=True, text=True, timeout=30, check=True,
@@ -415,6 +414,7 @@ def main():
         candidates = fetch_candidate_sessions(host, project_id, ph_key, micro_window, args.sessions, identity)
 
     findings = []
+    pending_captures = []
     for c in candidates:
         sid = c["session_id"]
         print(f"[micro] {sid}: pulling events + LLM verdict...")
@@ -444,7 +444,7 @@ def main():
         }
         for idx, task in enumerate(finding["tasks"]):
             if task.get("outcome") == "blocked" or task.get("severity") == "high":
-                trigger_capture(sid, task.get("key_timestamp") or c["started_at"], conn["id"], conn["owner_email"], idx)
+                pending_captures.append((sid, task.get("key_timestamp") or c["started_at"], idx))
         findings.append(finding)
 
     report = {
@@ -488,6 +488,8 @@ def main():
             )
         if resp.status_code == 200:
             print(f"Pushed to {args.worker_url}")
+            for sid, key_ts, idx in pending_captures:
+                trigger_capture(sid, key_ts, conn["id"], idx)
         else:
             print(f"WARNING: push to {args.worker_url} failed ({resp.status_code}): {resp.text}")
 
