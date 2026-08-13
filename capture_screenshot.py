@@ -90,7 +90,7 @@ def render_and_screenshot(events, out_path, vendor_dir):
 <div id="player"></div>
 <script>
 const events = {json.dumps(events)};
-window.__player = new rrwebPlayer({{
+window.__player = new rrwebPlayer.Player({{
   target: document.getElementById('player'),
   props: {{ events, autoPlay: false, width: 1280, height: 800 }},
 }});
@@ -101,7 +101,7 @@ window.__ready = true;
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 900})
-        page.goto(f"file://{html_path}")
+        page.goto(f"file://{html_path}", wait_until="domcontentloaded")
         page.wait_for_function("window.__ready === true", timeout=15000)
         page.wait_for_timeout(1500)  # let the first frame paint
         page.screenshot(path=out_path)
