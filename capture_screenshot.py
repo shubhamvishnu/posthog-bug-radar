@@ -52,8 +52,19 @@ def fetch_blob(host, project_id, api_key, session_id, blob_key):
     return resp.text
 
 
+def maybe_decompress(value):
+    if isinstance(value, str):
+        try:
+            return json.loads(gzip.decompress(value.encode("latin1")))
+        except Exception:
+            return value
+    return value
+
+
 def parse_rrweb_lines(raw_text):
-    """Each line is a JSON array: [window_id, event]. Decompress any gzip'd `data`."""
+    """Each line is a JSON array: [window_id, event]. Decompress any gzip'd
+    `data`, and any gzip'd sub-fields PostHog field-compresses separately
+    inside large mutation batches (adds/removes/attributes/texts)."""
     events = []
     for line in raw_text.strip().split("\n"):
         if not line.strip():
@@ -61,10 +72,12 @@ def parse_rrweb_lines(raw_text):
         _window_id, event = json.loads(line)
         data = event.get("data")
         if isinstance(data, str):
-            try:
-                event["data"] = json.loads(gzip.decompress(data.encode("latin1")))
-            except Exception:
-                pass  # not gzip'd, leave as-is
+            data = maybe_decompress(data)
+            event["data"] = data
+        if isinstance(data, dict):
+            for field in ("adds", "removes", "attributes", "texts"):
+                if field in data:
+                    data[field] = maybe_decompress(data[field])
         events.append(event)
     return events
 
