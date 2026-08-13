@@ -1124,7 +1124,7 @@ function renderCapturedMoments(f, ti, t) {
   const shown = !!state.expandedMedia[key];
   const grid = media.map((m, mi) => `
     <div class="moment-tile">
-      <div class="moment-ph"></div>
+      ${m.url ? `<img src="${escapeHtml(m.url)}" alt="Captured moment" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"/>` : `<div class="moment-ph"></div>`}
       <div class="moment-fade"></div>
       <span class="moment-ts">${escapeHtml(m.ts || "")}</span>
       ${m.isVid ? `<span class="moment-dur">${escapeHtml(m.dur || "")}</span><button class="moment-play" data-act="moment-open" data-task="${ti}" data-media="${mi}" title="Play clip">${ICON_PLAY_FILL}</button>` : ""}
