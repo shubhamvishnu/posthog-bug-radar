@@ -461,6 +461,9 @@ export default {
           body.connection_id || null
         )
         .run();
+      if (body.connection_id) {
+        await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(body.connection_id).run();
+      }
       return json({ ok: true });
     }
 
@@ -535,6 +538,7 @@ export default {
       const bySession = new Map(baseMicro.map(f => [f.session_id, f]));
       for (const f of resolvedNewFindings) bySession.set(f.session_id, f);
       const mergedMicro = Array.from(bySession.values());
+      const resolvedConnectionId = connectionId || (base ? base.connection_id : null);
       await env.DB.prepare(
         `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -545,8 +549,11 @@ export default {
         base ? base.theme_prompt : null,
         sessionPrompt || (base ? base.session_prompt : null),
         ownerEmail,
-        connectionId || (base ? base.connection_id : null)
+        resolvedConnectionId
       ).run();
+      if (resolvedConnectionId) {
+        await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(resolvedConnectionId).run();
+      }
       return json({ ok: true, merged_session_ids: newFindings.map(f => f.session_id), total_findings: mergedMicro.length });
     }
 
@@ -736,6 +743,24 @@ export default {
       if (!conn) return json({ error: "not found" }, 404);
       await env.DB.prepare("UPDATE connections SET identity_email_prop = ?, identity_name_prop = ?, identity_role_prop = ? WHERE id = ?")
         .bind(body.email || null, body.name || null, body.role || null, id).run();
+      return json({ ok: true });
+    }
+
+    const syncSettingsMatch = pathname.match(/^\/api\/connections\/(\d+)\/sync-settings$/);
+    if (syncSettingsMatch && request.method === "POST") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const id = Number(syncSettingsMatch[1]);
+      const body = await request.json().catch(() => ({}));
+      const syncFreq = body.sync_freq;
+      const syncMaxSessions = Number(body.sync_max_sessions);
+      if (!SYNC_FREQ_VALUES.includes(syncFreq) || !SYNC_MAX_SESSIONS_VALUES.includes(syncMaxSessions)) {
+        return json({ error: "invalid sync_freq or sync_max_sessions" }, 400);
+      }
+      const conn = await env.DB.prepare("SELECT id FROM connections WHERE id = ? AND owner_email = ?").bind(id, email).first();
+      if (!conn) return json({ error: "not found" }, 404);
+      await env.DB.prepare("UPDATE connections SET sync_freq = ?, sync_max_sessions = ? WHERE id = ?")
+        .bind(syncFreq, syncMaxSessions, id).run();
       return json({ ok: true });
     }
 
