@@ -38,6 +38,10 @@ def fetch_snapshot_manifest(host, project_id, api_key, session_id):
         f"{host}/api/projects/{project_id}/session_recordings/{session_id}/snapshots",
         headers={"Authorization": f"Bearer {api_key}"}, timeout=30,
     )
+    if resp.status_code == 404:
+        # No recording exists for this session (not every session gets one) —
+        # expected, not an error. Treat as "nothing to capture."
+        return []
     resp.raise_for_status()
     return resp.json().get("sources", [])
 
