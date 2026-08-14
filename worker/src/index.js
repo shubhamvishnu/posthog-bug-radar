@@ -26,6 +26,24 @@ function sqliteTimeToMs(sqliteText) {
   return Date.parse(sqliteText.replace(" ", "T") + "Z");
 }
 
+const SYNC_FREQ_VALUES = ["5m", "30m", "1h", "6h", "12h", "1d", "7d"];
+const SYNC_MAX_SESSIONS_VALUES = [8, 20, 50, 100];
+const SYNC_FREQ_MS = {
+  "5m": 5 * 60 * 1000,
+  "30m": 30 * 60 * 1000,
+  "1h": 60 * 60 * 1000,
+  "6h": 6 * 60 * 60 * 1000,
+  "12h": 12 * 60 * 60 * 1000,
+  "1d": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+};
+
+function computeDue(syncFreq, lastPipelineRunAt) {
+  if (!lastPipelineRunAt) return true; // never run yet — always due, don't make a new customer wait a full cycle
+  const freqMs = SYNC_FREQ_MS[syncFreq] || SYNC_FREQ_MS["1d"];
+  return Date.now() >= sqliteTimeToMs(lastPipelineRunAt) + freqMs;
+}
+
 async function getSessionEmail(request, env) {
   const token = getCookie(request, SESSION_COOKIE);
   if (!token) return null;
@@ -455,11 +473,17 @@ export default {
       if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
       const { results } = await env.DB.prepare(
         `SELECT c.id, c.owner_email, c.region, c.project_id, c.project_name, c.timezone, c.status,
-                c.identity_email_prop, c.identity_name_prop, c.identity_role_prop, cc.config_json
+                c.identity_email_prop, c.identity_name_prop, c.identity_role_prop,
+                c.sync_freq, c.sync_max_sessions, c.last_pipeline_run_at, cc.config_json
          FROM connections c LEFT JOIN connection_config cc ON cc.connection_id = c.id
          ORDER BY c.id`
       ).all();
-      return json(results.map(r => ({ ...r, config: r.config_json ? JSON.parse(r.config_json) : null, config_json: undefined })));
+      return json(results.map(r => ({
+        ...r,
+        config: r.config_json ? JSON.parse(r.config_json) : null,
+        config_json: undefined,
+        due: computeDue(r.sync_freq, r.last_pipeline_run_at),
+      })));
     }
 
     const pipelineConnMatch = pathname.match(/^\/api\/pipeline\/connections\/(\d+)$/);
@@ -665,11 +689,17 @@ export default {
       if (!email) return json({ error: "not authenticated" }, 401);
       const { results } = await env.DB.prepare(
         `SELECT c.id, c.region, c.project_id, c.project_name, c.timezone, c.status, c.last_error, c.last_synced_at,
-                c.identity_email_prop, c.identity_name_prop, c.identity_role_prop, cc.config_json
+                c.identity_email_prop, c.identity_name_prop, c.identity_role_prop,
+                c.sync_freq, c.sync_max_sessions, c.last_pipeline_run_at, cc.config_json
          FROM connections c LEFT JOIN connection_config cc ON cc.connection_id = c.id
          WHERE c.owner_email = ? ORDER BY c.id DESC`
       ).bind(email).all();
-      return json(results.map(r => ({ ...r, config_json: undefined, config: r.config_json ? JSON.parse(r.config_json) : null })));
+      return json(results.map(r => ({
+        ...r,
+        config_json: undefined,
+        config: r.config_json ? JSON.parse(r.config_json) : null,
+        due: computeDue(r.sync_freq, r.last_pipeline_run_at),
+      })));
     }
 
     const resyncMatch = pathname.match(/^\/api\/connections\/(\d+)\/resync$/);
