@@ -41,7 +41,9 @@ const SYNC_FREQ_MS = {
 function computeDue(syncFreq, lastPipelineRunAt) {
   if (!lastPipelineRunAt) return true; // never run yet — always due, don't make a new customer wait a full cycle
   const freqMs = SYNC_FREQ_MS[syncFreq] || SYNC_FREQ_MS["1d"];
-  return Date.now() >= sqliteTimeToMs(lastPipelineRunAt) + freqMs;
+  const lastMs = sqliteTimeToMs(lastPipelineRunAt);
+  if (Number.isNaN(lastMs)) return true; // unparseable timestamp — fail safe (due), not silent (never due)
+  return Date.now() >= lastMs + freqMs;
 }
 
 async function getSessionEmail(request, env) {
@@ -555,6 +557,14 @@ export default {
         await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(resolvedConnectionId).run();
       }
       return json({ ok: true, merged_session_ids: newFindings.map(f => f.session_id), total_findings: mergedMicro.length });
+    }
+
+    const touchMatch = pathname.match(/^\/api\/pipeline\/connections\/(\d+)\/touch$/);
+    if (touchMatch && request.method === "POST") {
+      if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const id = Number(touchMatch[1]);
+      await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(id).run();
+      return json({ ok: true });
     }
 
     if (pathname === "/api/pipeline/media" && request.method === "POST") {

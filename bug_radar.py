@@ -378,6 +378,13 @@ def main():
 
     secret = keychain("BUGRADAR_API_SECRET")
     conn = fetch_connection(args.worker_url, secret, args.connection_id)
+    try:
+        requests.post(
+            f"{args.worker_url}/api/pipeline/connections/{conn['id']}/touch",
+            headers={"Authorization": f"Bearer {secret}"}, timeout=10,
+        )
+    except Exception as e:
+        print(f"WARNING: could not touch heartbeat for connection {conn['id']}: {e}")
     host = PH_HOSTS[conn["region"]]
     project_id = conn["project_id"]
     ph_key = conn["api_key"]

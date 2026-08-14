@@ -4,7 +4,7 @@ cd "$(dirname "$0")"
 source venv/bin/activate
 
 SECRET=$(security find-generic-password -s "BUGRADAR_API_SECRET" -w)
-DUE=$(curl -s "https://bug-radar.shubhamvishnu.workers.dev/api/pipeline/connections" \
+DUE=$(curl -s --max-time 30 "https://bug-radar.shubhamvishnu.workers.dev/api/pipeline/connections" \
   -H "Authorization: Bearer $SECRET" | python3 -c "
 import json, sys
 for c in json.load(sys.stdin):
