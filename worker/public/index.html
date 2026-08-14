@@ -377,6 +377,13 @@ html[data-theme="dark"]{
 .conn-group-body{padding:2px 22px 16px 48px;display:flex;flex-direction:column;gap:11px}
 .conn-item-chip{flex:none;margin-top:1px;display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:6px;font-size:11px;font-weight:500;white-space:nowrap}
 .conn-savebar{padding:16px 22px;display:flex;align-items:center;gap:12px}
+.conn-sync-settings{padding:20px 22px;border-top:1px solid var(--border-soft)}
+.sync-row{display:flex;align-items:flex-start;gap:14px;margin-bottom:18px}
+.sync-row:last-of-type{margin-bottom:0}
+.sync-row-label{min-width:0;flex:1}
+.sync-pill-group{display:inline-flex;flex-wrap:wrap;gap:4px;background:var(--bg-sub);border:1px solid var(--border);border-radius:10px;padding:3px;flex:none}
+.sync-pill{padding:6px 12px;border-radius:8px;font-size:12.5px;font-weight:500;color:var(--muted);white-space:nowrap}
+.sync-pill.active{font-weight:600;color:var(--text);background:var(--bg-elev);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .know-card{border:1px solid var(--border);border-radius:14px;padding:22px;max-width:620px}
 .know-textarea{width:100%;min-height:150px;padding:13px;border-radius:10px;border:1px solid var(--border-str);background:var(--bg-elev);color:var(--text);font-size:13.5px;line-height:1.6;outline:none;resize:vertical;font-family:inherit}
 
@@ -1421,8 +1428,42 @@ function renderConnChecklist() {
   }).join("");
 }
 
+const SYNC_FREQ_OPTS = [["5m", "Every 5 min"], ["30m", "Every 30 min"], ["1h", "Hourly"], ["6h", "Every 6 hrs"], ["12h", "Every 12 hrs"], ["1d", "Daily"], ["7d", "Weekly"]];
+const SYNC_MAX_OPTS = [8, 20, 50, 100];
+const NEXT_SYNC_LABEL = { "5m": "in ~5 min", "30m": "in ~30 min", "1h": "within the hour", "6h": "in a few hours", "12h": "in up to 12 hours", "1d": "tomorrow", "7d": "next week" };
+
+function renderSyncSettings(conn) {
+  const freq = conn.sync_freq || "1d";
+  const maxSessions = conn.sync_max_sessions || 8;
+  const freqPills = SYNC_FREQ_OPTS.map(([v, label]) => `<button class="sync-pill${v === freq ? " active" : ""}" data-act="sync-freq-pick" data-id="${conn.id}" data-val="${v}">${label}</button>`).join("");
+  const maxPills = SYNC_MAX_OPTS.map(v => `<button class="sync-pill${v === maxSessions ? " active" : ""}" data-act="sync-max-pick" data-id="${conn.id}" data-val="${v}">${v}</button>`).join("");
+  const nextLabel = conn.due ? "now" : (NEXT_SYNC_LABEL[freq] || "soon");
+  return `
+    <div class="conn-sync-settings">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+        ${ICON_REFRESH}
+        <span style="font-size:11px;font-weight:600;letter-spacing:.03em;color:var(--faint)">SYNC SETTINGS</span>
+      </div>
+      <div class="sync-row">
+        <div class="sync-row-label">
+          <div style="font-size:13.5px;font-weight:600">Sync frequency</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;line-height:1.45">How often Bug Radar pulls new sessions from PostHog.</div>
+        </div>
+        <div class="sync-pill-group">${freqPills}</div>
+      </div>
+      <div class="sync-row">
+        <div class="sync-row-label">
+          <div style="font-size:13.5px;font-weight:600">Max sessions per sync</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;line-height:1.45">Caps how many of the newest sessions are pulled each run.</div>
+        </div>
+        <div class="sync-pill-group">${maxPills}</div>
+      </div>
+      <div style="font-size:12.5px;color:var(--muted);margin-top:14px;padding-top:14px;border-top:1px solid var(--border-soft)">Next sync ${escapeHtml(nextLabel)} · up to ${maxSessions} sessions</div>
+    </div>`;
+}
+
 function renderConnConfigCard(configMap, identity, opts) {
-  const { showSaveBar, identityEditable, onIdentityOpt } = opts;
+  const { showSaveBar, identityEditable, onIdentityOpt, conn } = opts;
   const identityText = identity.email
     ? `Using <b>${escapeHtml(identity.email)}</b>${identity.name ? ` / ${escapeHtml(identity.name)}` : ""}${identity.role ? ` / ${escapeHtml(identity.role)}` : ""} to identify users`
     : "No custom identity properties found — sessions will be anonymous";
@@ -1487,6 +1528,7 @@ function renderConnConfigCard(configMap, identity, opts) {
       </div>
     </div>
     ${groupsHtml}
+    ${conn ? renderSyncSettings(conn) : ""}
     ${showSaveBar ? `<div class="conn-savebar">
       <span style="font-size:13px;color:var(--muted)">Looks right? The agent's picks are live the moment you save.</span>
       <div style="margin-left:auto;display:flex;gap:9px">
@@ -1551,7 +1593,7 @@ function renderConnectionsTab() {
   return `
     <div class="section-label">CONNECTED SOURCES</div>
     ${rowsHtml}
-    ${active && active.config ? renderConnConfigCard(active.config, identity, { showSaveBar: false, identityEditable: true }) : ""}
+    ${active && active.config ? renderConnConfigCard(active.config, identity, { showSaveBar: false, identityEditable: true, conn: active }) : ""}
   `;
 }
 
@@ -1905,6 +1947,26 @@ document.addEventListener("click", e => {
     else { const c = CONNECTIONS.find(x => x.id === state.activeConnId) || CONNECTIONS[0]; if (c) { c.identity_email_prop = prop; fetch(`/api/connections/${c.id}/identity`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: prop, name: c.identity_name_prop, role: c.identity_role_prop }) }); } }
     state.identityEditing = false;
     render();
+  }
+  else if (act === "sync-freq-pick") {
+    const id = Number(el.dataset.id);
+    const val = el.dataset.val;
+    const c = CONNECTIONS.find(x => x.id === id);
+    if (c) {
+      c.sync_freq = val;
+      fetch(`/api/connections/${id}/sync-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sync_freq: val, sync_max_sessions: c.sync_max_sessions || 8 }) });
+      render();
+    }
+  }
+  else if (act === "sync-max-pick") {
+    const id = Number(el.dataset.id);
+    const val = Number(el.dataset.val);
+    const c = CONNECTIONS.find(x => x.id === id);
+    if (c) {
+      c.sync_max_sessions = val;
+      fetch(`/api/connections/${id}/sync-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sync_freq: c.sync_freq || "1d", sync_max_sessions: val }) });
+      render();
+    }
   }
   else if (act === "conn-save") { saveConnection(); }
   else if (act === "conn-resync") { resyncConnection(Number(el.dataset.id)); }
