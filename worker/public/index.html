@@ -490,15 +490,17 @@ const PIPELINE = [
 let CONNECTIONS = [];
 let KNOWLEDGE = { domain: "", description: "" };
 let GOALS = [];
+let TAGS = [];
 
 async function loadData() {
-  const [reportRes, promptsRes, correctionsRes, connRes, knowRes, goalsRes] = await Promise.all([
+  const [reportRes, promptsRes, correctionsRes, connRes, knowRes, goalsRes, tagsRes] = await Promise.all([
     fetch("/api/report"),
     fetch("/api/prompts"),
     fetch("/api/corrections"),
     fetch("/api/connections"),
     fetch("/api/company-knowledge"),
     fetch("/api/goals"),
+    fetch("/api/tags"),
   ]);
   if (reportRes.ok) REPORT = await reportRes.json();
   if (promptsRes.ok) PROMPTS = await promptsRes.json();
@@ -513,6 +515,7 @@ async function loadData() {
   if (connRes.ok) CONNECTIONS = await connRes.json();
   if (knowRes.ok) { KNOWLEDGE = await knowRes.json(); state.knowledgeUrl = KNOWLEDGE.domain || ""; state.knowledgeDesc = KNOWLEDGE.description || ""; }
   if (goalsRes.ok) GOALS = await goalsRes.json();
+  if (tagsRes.ok) TAGS = await tagsRes.json();
 }
 
 /* ---------------- state ---------------- */
@@ -554,6 +557,7 @@ const state = {
   goalDesc: "",
   goalTags: "",
   expandedMedia: {},
+  taskTagPicker: null,
 };
 
 function getTheme() {
@@ -698,6 +702,7 @@ const ICON_USER = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" s
 const ICON_TRASH = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>`;
 const ICON_LOGOUT = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M9 20H5.5A1.5 1.5 0 0 1 4 18.5v-13A1.5 1.5 0 0 1 5.5 4H9"/><path d="M16 16l4-4-4-4M20 12H9"/></svg>`;
 const ICON_PLUS = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
+const ICON_X_TINY = `<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>`;
 const ICON_SPARKLE = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"/></svg>`;
 const ICON_REFRESH = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8 8 0 0 0 6.3 5.7L3 9"/><path d="M3 4v5h5"/><path d="M4 13a8 8 0 0 0 13.7 5.3L21 15"/><path d="M21 20v-5h-5"/></svg>`;
 const ICON_SCAN = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"/><circle cx="12" cy="12" r="3.2"/></svg>`;
@@ -1143,6 +1148,76 @@ function renderCapturedMoments(f, ti, t) {
   </div>`;
 }
 
+function taskTagPickerToggle(key) {
+  state.taskTagPicker = state.taskTagPicker === key ? null : key;
+  render();
+}
+
+async function taskTagAdd(sessionId, taskIndex, tagId) {
+  state.taskTagPicker = null;
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/tasks/${taskIndex}/tags`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tag_id: tagId }),
+  });
+  if (res.ok) { await loadData(); render(); }
+  else flash("Could not add tag");
+}
+
+async function taskTagRemove(sessionId, taskIndex, tagId) {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/tasks/${taskIndex}/tags/${tagId}`, { method: "DELETE" });
+  if (res.ok) { await loadData(); render(); }
+  else flash("Could not remove tag");
+}
+
+function tagChipHtml(tagId, onRemove) {
+  const def = TAGS.find(x => x.id === tagId);
+  const color = def ? def.color : "#64748b";
+  const label = def ? def.label : "Unknown";
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${color};background:color-mix(in srgb,${color} 13%,transparent);border:1px solid color-mix(in srgb,${color} 28%,transparent)">${escapeHtml(label)}${onRemove ? `<button data-act="task-tag-remove" data-session="${escapeHtml(onRemove.sessionId)}" data-task="${onRemove.taskIndex}" data-tagid="${tagId}" title="Remove tag" style="display:grid;place-items:center;width:13px;height:13px;margin:-1px -3px -1px 0;border-radius:50%;color:currentColor;opacity:.6">${ICON_X_TINY}</button>` : ""}</span>`;
+}
+
+function renderSessionTagsRail(f) {
+  const byTag = new Map(); // tag_id -> { count, anyUser }
+  (f.tasks || []).forEach(t => (t.tags || []).forEach(tg => {
+    const entry = byTag.get(tg.tag_id) || { count: 0, anyUser: false };
+    entry.count++;
+    if (tg.assign === "user") entry.anyUser = true;
+    byTag.set(tg.tag_id, entry);
+  }));
+  const chipsHtml = Array.from(byTag.entries()).map(([tagId, entry]) => {
+    const def = TAGS.find(x => x.id === tagId);
+    const color = def ? def.color : "#64748b";
+    const label = def ? def.label : "Unknown";
+    const countLabel = entry.count > 1 ? ` <span style="opacity:.7">${entry.count}</span>` : "";
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${color};background:color-mix(in srgb,${color} 13%,transparent);border:1px solid color-mix(in srgb,${color} 28%,transparent)">${escapeHtml(label)}${countLabel}</span>`;
+  }).join("");
+  return `
+  <div class="rail-panel">
+    <div class="rail-panel-head">TAGS<span style="margin-left:6px;font-family:'JetBrains Mono',monospace;font-weight:600">${byTag.size}</span></div>
+    ${byTag.size ? `<div style="display:flex;flex-wrap:wrap;gap:6px;padding:2px 0 4px">${chipsHtml}</div>` : `<div style="font-size:12px;color:var(--faint);line-height:1.5;padding:2px 0 4px">No tags yet — open a task and add one to categorise this session.</div>`}
+  </div>`;
+}
+
+function renderTaskTags(f, ti, t) {
+  const pickerKey = `${f.session_id}:${ti}`;
+  const pickerOpen = state.taskTagPicker === pickerKey;
+  const currentTagIds = (t.tags || []).map(tg => tg.tag_id);
+  const chipsHtml = (t.tags || []).map(tg => tagChipHtml(tg.tag_id, { sessionId: f.session_id, taskIndex: ti })).join("");
+  const addable = TAGS.filter(d => !currentTagIds.includes(d.id));
+  const pickerHtml = pickerOpen ? `
+    <div style="margin-top:8px;padding:12px;border:1px solid var(--border-str);border-radius:10px;background:var(--bg-elev)">
+      <div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.03em;margin-bottom:9px">ADD FROM YOUR TAG LIBRARY</div>
+      ${addable.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${addable.map(d => `<button data-act="task-tag-add" data-session="${escapeHtml(f.session_id)}" data-task="${ti}" data-tagid="${d.id}" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${d.color};background:color-mix(in srgb,${d.color} 13%,transparent);border:1px solid color-mix(in srgb,${d.color} 28%,transparent)">${escapeHtml(d.label)}</button>`).join("")}</div>`
+        : `<div style="font-size:12px;color:var(--muted)">Every tag is already applied. Create more in Settings → Goals &amp; tags.</div>`}
+    </div>` : "";
+  return `
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:10px 0">
+      ${chipsHtml}
+      <button data-act="task-tag-picker-toggle" data-key="${escapeHtml(pickerKey)}" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;line-height:1;padding:4px 9px;border-radius:20px;border:1px dashed ${pickerOpen ? "var(--accent)" : "var(--border-str)"};color:${pickerOpen ? "var(--accent)" : "var(--faint)"}">${ICON_PLUS}Tag</button>
+    </div>
+    ${pickerHtml}`;
+}
+
 function renderSessionDetail() {
   const f = REPORT.micro_findings.find(x => x.session_id === state.selSession);
   if (!f) return `<div class="pageheader"><button class="crumb" data-act="nav" data-route="sessions">Sessions</button></div><div class="content"><div class="empty-note">Session not found.</div></div>`;
@@ -1223,6 +1298,7 @@ function renderSessionDetail() {
             <button class="icon-btn${isCorrecting ? " on" : ""}" data-act="toggle-correct" data-task="${ti}" title="Correct the labels &amp; give the model context">${ICON_EDIT}</button>
           </div>
         </div>
+        ${renderTaskTags(f, ti, t)}
         <p class="task-narrative2">${escapeHtml(t.narrative)}</p>
         <div class="task-status-row">
           <span class="dot-item"><span class="dot" style="background:${t.real_bug ? "var(--sev-high)" : "var(--faint)"}"></span>${t.real_bug ? "Real bug" : "Not a bug"}</span>
@@ -1298,6 +1374,7 @@ function renderSessionDetail() {
         <div class="rail-signal-row"><span class="lbl"><span class="dot" style="background:var(--ev-rage)"></span>Rage clicks</span><span class="val" style="color:var(--ev-rage)">${c.rage_clicks ?? 0}</span></div>
         <div class="rail-signal-row"><span class="lbl"><span class="dot" style="background:var(--ev-exc)"></span>Exceptions</span><span class="val" style="color:var(--ev-exc)">${c.exceptions ?? 0}</span></div>
       </div>
+      ${renderSessionTagsRail(f)}
     </aside>
   </div></div></div>`;
 }
@@ -1976,6 +2053,9 @@ document.addEventListener("click", e => {
   else if (act === "goal-toggle-form") { goalToggleForm(); }
   else if (act === "goal-save") { goalSave(); }
   else if (act === "goal-remove") { goalRemove(Number(el.dataset.id)); }
+  else if (act === "task-tag-picker-toggle") { taskTagPickerToggle(el.dataset.key); }
+  else if (act === "task-tag-add") { taskTagAdd(el.dataset.session, Number(el.dataset.task), Number(el.dataset.tagid)); }
+  else if (act === "task-tag-remove") { taskTagRemove(el.dataset.session, Number(el.dataset.task), Number(el.dataset.tagid)); }
 });
 
 document.addEventListener("input", e => {
