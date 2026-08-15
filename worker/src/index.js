@@ -541,7 +541,7 @@ export default {
         const captureCount = Number(body.capture_count) || 0;
         await logConnectionEvent(
           env, body.connection_id, "sync_completed", "success", "Sync completed",
-          `Pulled ${resolvedFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount} moments captured.`,
+          `Pulled ${resolvedFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount} moments queued.`,
           "scheduled"
         );
       }
@@ -669,7 +669,7 @@ export default {
         const captureCount = Number(body.capture_count) || 0;
         await logConnectionEvent(
           env, resolvedConnectionId, "sync_completed", "success", "Sync completed",
-          `Pulled ${resolvedNewFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount} moments captured.`,
+          `Pulled ${resolvedNewFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount} moments queued.`,
           "manual · targeted"
         );
       }
@@ -872,7 +872,7 @@ export default {
         );
         return json({ ok: true, config: configMap });
       } catch (e) {
-        await env.DB.prepare("UPDATE connections SET status = 'error', last_error = ? WHERE id = ?").bind(e.message || "sync failed", id).run();
+        await env.DB.prepare("UPDATE connections SET status = 'error', last_error = ? WHERE id = ?").bind(e.message || "Re-sync failed.", id).run();
         await logConnectionEvent(env, id, "resync", "error", "Re-sync failed", e.message || "Re-sync failed.", `you · ${email}`);
         return json({ error: e.message || "Re-sync failed." }, e.status || 502);
       }

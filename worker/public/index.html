@@ -1594,7 +1594,7 @@ function renderAuditLog(conn) {
     <button class="conn-group-btn" data-act="conn-toggle-audit" data-id="${conn.id}">
       ${ICON_CHEVRON(15)}
       <span style="font-weight:600;font-size:13.5px">AUDIT LOG</span>
-      <span style="margin-left:auto;font-size:11.5px;color:var(--faint)">${events ? events.length : ""} entries</span>
+      <span style="margin-left:auto;font-size:11.5px;color:var(--faint)">${events ? `last ${events.length}` : ""}</span>
     </button>
     ${open ? `<div class="conn-group-body">${events ? rowsHtml : `<div style="padding:12px 0;font-size:12.5px;color:var(--faint)">Loading…</div>`}</div>` : ""}
   </div>`;
@@ -2167,6 +2167,8 @@ document.addEventListener("click", e => {
     if (c) {
       c.sync_freq = val;
       fetch(`/api/connections/${id}/sync-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sync_freq: val, sync_max_sessions: c.sync_max_sessions || 8 }) });
+      delete state.connEventsCache[id];
+      if (state.connEventsOpen[id]) loadConnEvents(id);
       render();
     }
   }
@@ -2177,6 +2179,8 @@ document.addEventListener("click", e => {
     if (c) {
       c.sync_max_sessions = val;
       fetch(`/api/connections/${id}/sync-settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sync_freq: c.sync_freq || "1d", sync_max_sessions: val }) });
+      delete state.connEventsCache[id];
+      if (state.connEventsOpen[id]) loadConnEvents(id);
       render();
     }
   }
