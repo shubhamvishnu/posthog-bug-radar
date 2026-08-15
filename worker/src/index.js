@@ -351,6 +351,12 @@ async function saveMicroFindings(env, reportId, micro) {
     .run();
 }
 
+async function logConnectionEvent(env, connectionId, kind, status, title, detail, triggerLabel) {
+  await env.DB.prepare(
+    `INSERT INTO connection_events (connection_id, kind, status, title, detail, trigger_label) VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(connectionId, kind, status, title, detail || null, triggerLabel).run();
+}
+
 // Best-effort: appends a media entry to a task via loadTaskForMutation. If that
 // session/task isn't in the latest report anymore, this is a no-op, not an
 // error, the screenshot is simply dropped, matching this feature's fail-soft
@@ -785,6 +791,10 @@ export default {
       await env.DB.prepare(
         `INSERT INTO connection_config (connection_id, config_json) VALUES (?, ?)`
       ).bind(connectionId, JSON.stringify(configMap)).run();
+      await logConnectionEvent(
+        env, connectionId, "connection_established", "success", "Connection established",
+        `PostHog project "${configMap.projectName || String(projectId)}" linked.`, `you · ${email}`
+      );
       return json({ ok: true, connection_id: connectionId });
     }
 
@@ -823,9 +833,14 @@ export default {
         ).bind(id, JSON.stringify(configMap)).run();
         await env.DB.prepare("UPDATE connections SET status = 'healthy', last_error = NULL, last_synced_at = datetime('now'), project_name = ? WHERE id = ?")
           .bind(configMap.projectName || conn.project_name, id).run();
+        await logConnectionEvent(
+          env, id, "resync", "success", "Connection re-synced",
+          `PostHog project "${configMap.projectName || conn.project_name}" re-verified.`, `you · ${email}`
+        );
         return json({ ok: true, config: configMap });
       } catch (e) {
         await env.DB.prepare("UPDATE connections SET status = 'error', last_error = ? WHERE id = ?").bind(e.message || "sync failed", id).run();
+        await logConnectionEvent(env, id, "resync", "error", "Re-sync failed", e.message || "Re-sync failed.", `you · ${email}`);
         return json({ error: e.message || "Re-sync failed." }, e.status || 502);
       }
     }
@@ -858,6 +873,10 @@ export default {
       if (!conn) return json({ error: "not found" }, 404);
       await env.DB.prepare("UPDATE connections SET sync_freq = ?, sync_max_sessions = ? WHERE id = ?")
         .bind(syncFreq, syncMaxSessions, id).run();
+      await logConnectionEvent(
+        env, id, "settings_changed", "info", "Settings changed",
+        `Sync frequency set to ${syncFreq} · max sessions set to ${syncMaxSessions}.`, `you · ${email}`
+      );
       return json({ ok: true });
     }
 
