@@ -558,6 +558,9 @@ const state = {
   goalTags: "",
   expandedMedia: {},
   taskTagPicker: null,
+  tagFormOpen: false,
+  tagLabel: "",
+  tagColorIdx: 0,
 };
 
 function getTheme() {
@@ -1732,6 +1735,37 @@ async function goalRemove(id) {
   else flash("Could not remove goal");
 }
 
+const TAG_PALETTE = ["#e11d48", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#2563eb", "#7c3aed", "#db2777"];
+
+function tagToggleForm() {
+  state.tagFormOpen = !state.tagFormOpen;
+  state.tagLabel = ""; state.tagColorIdx = 0;
+  render();
+}
+
+async function tagSave() {
+  const label = state.tagLabel.trim();
+  if (!label) return;
+  const res = await fetch("/api/tags", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ label, color_idx: state.tagColorIdx }),
+  });
+  if (res.ok) {
+    state.tagFormOpen = false; state.tagLabel = ""; state.tagColorIdx = 0;
+    await loadData();
+    flash("Tag added");
+    render();
+  } else {
+    flash("Could not save tag");
+  }
+}
+
+async function tagRemove(id) {
+  const res = await fetch(`/api/tags/${id}`, { method: "DELETE" });
+  if (res.ok) { await loadData(); render(); }
+  else flash("Could not remove tag");
+}
+
 function renderGoalsTab() {
   const formHtml = state.goalFormOpen ? `
     <div style="border:1px solid var(--accent);border-radius:14px;padding:20px;max-width:640px;margin-bottom:18px;background:color-mix(in srgb,var(--accent) 4%,transparent)">
@@ -1785,7 +1819,48 @@ function renderGoalsTab() {
   </div>
   ${formHtml}
   ${emptyHtml}
-  <div style="display:flex;flex-direction:column;gap:10px;max-width:640px">${goalsHtml}</div>`;
+  <div style="display:flex;flex-direction:column;gap:10px;max-width:640px;margin-bottom:32px">${goalsHtml}</div>
+  ${renderTagsSection()}`;
+}
+
+function renderTagsSection() {
+  const tagFormHtml = state.tagFormOpen ? `
+    <div style="border:1px solid var(--accent);border-radius:14px;padding:20px;max-width:640px;margin-bottom:18px;background:color-mix(in srgb,var(--accent) 4%,transparent)">
+      <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:7px">Tag name</label>
+      <input id="tagLabelInput" class="conn-input" style="font-family:inherit" type="text" spellcheck="false" placeholder="e.g. Onboarding, Billing, Mobile" value="${escapeHtml(state.tagLabel)}"/>
+      <div style="display:flex;gap:8px;margin:16px 0 0">
+        ${TAG_PALETTE.map((c, i) => `<button data-act="tag-color-pick" data-idx="${i}" style="width:28px;height:28px;border-radius:8px;background:${c};box-shadow:0 0 0 2px var(--bg-elev),0 0 0 ${state.tagColorIdx === i ? "4px" : "2px"} ${state.tagColorIdx === i ? "var(--text)" : "var(--border)"}"></button>`).join("")}
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;margin-top:16px">
+        <button data-act="tag-save" style="padding:8px 15px;border-radius:9px;font-size:12.5px;font-weight:600;color:var(--accent-fg);background:var(--accent);opacity:${state.tagLabel.trim() ? 1 : .4};pointer-events:${state.tagLabel.trim() ? "auto" : "none"}">Add tag</button>
+        <button data-act="tag-toggle-form" style="padding:8px 14px;border:1px solid var(--border-str);border-radius:9px;font-size:12.5px;font-weight:500;color:var(--text)">Cancel</button>
+      </div>
+    </div>` : "";
+
+  const chip = (t) => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${escapeHtml(t.color)};background:color-mix(in srgb,${escapeHtml(t.color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(t.color)} 28%,transparent)">${escapeHtml(t.label)}<button data-act="tag-remove" data-id="${t.id}" title="Remove tag" style="display:grid;place-items:center;width:14px;height:14px;margin:-1px -3px -1px 0;border-radius:50%;color:currentColor;opacity:.5">${ICON_X_TINY}</button></span>`;
+
+  const auto = TAGS.filter(t => t.source === "auto");
+  const user = TAGS.filter(t => t.source === "user");
+
+  return `
+  <div style="max-width:640px">
+    <div style="display:flex;align-items:flex-start;gap:16px;margin-bottom:20px">
+      <div style="flex:1;min-width:0">
+        <div class="section-label" style="margin-bottom:4px">TAGS</div>
+        <div style="font-size:12.5px;color:var(--muted);line-height:1.5">Categories the agent applies to each task so engineering and product can slice sessions by theme. The agent auto-creates tags from recurring patterns; you can also define your own — either kind is applied automatically to matching tasks.</div>
+      </div>
+      <button data-act="tag-toggle-form" style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 13px;border:1px solid ${state.tagFormOpen ? "var(--accent)" : "var(--border-str)"};border-radius:9px;font-size:12.5px;font-weight:500;color:${state.tagFormOpen ? "var(--accent)" : "var(--text)"}">${ICON_PLUS}New tag</button>
+    </div>
+    ${tagFormHtml}
+    <div style="margin-bottom:18px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><span class="section-label" style="margin-bottom:0">AUTO</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--faint)">${auto.length}</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${auto.length ? auto.map(chip).join("") : `<span style="font-size:12px;color:var(--faint)">None yet — the agent adds these as patterns emerge.</span>`}</div>
+    </div>
+    <div>
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><span class="section-label" style="margin-bottom:0">USER</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--faint)">${user.length}</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">${user.map(chip).join("")}</div>
+    </div>
+  </div>`;
 }
 
 function renderKnowledgeTab() {
@@ -1852,7 +1927,7 @@ function renderSettings() {
   return `
   <div class="pageheader"><span class="title">Settings</span></div>
   <div class="content"><div class="contentpad" style="max-width:900px">
-    <div class="settings-tabs">${tabBtn("connections", "Connections")}${tabBtn("knowledge", "Company knowledge")}${tabBtn("pipeline", "Pipeline &amp; model")}${tabBtn("goals", "Goals")}</div>
+    <div class="settings-tabs">${tabBtn("connections", "Connections")}${tabBtn("knowledge", "Company knowledge")}${tabBtn("pipeline", "Pipeline &amp; model")}${tabBtn("goals", "Goals &amp; tags")}</div>
     ${body}
   </div></div>`;
 }
@@ -2056,6 +2131,10 @@ document.addEventListener("click", e => {
   else if (act === "task-tag-picker-toggle") { taskTagPickerToggle(el.dataset.key); }
   else if (act === "task-tag-add") { taskTagAdd(el.dataset.session, Number(el.dataset.task), Number(el.dataset.tagid)); }
   else if (act === "task-tag-remove") { taskTagRemove(el.dataset.session, Number(el.dataset.task), Number(el.dataset.tagid)); }
+  else if (act === "tag-toggle-form") { tagToggleForm(); }
+  else if (act === "tag-color-pick") { state.tagColorIdx = Number(el.dataset.idx); render(); }
+  else if (act === "tag-save") { tagSave(); }
+  else if (act === "tag-remove") { tagRemove(Number(el.dataset.id)); }
 });
 
 document.addEventListener("input", e => {
@@ -2081,6 +2160,7 @@ document.addEventListener("input", e => {
     else if (inner.target.id === "goalPurposeInput") { state.goalPurpose = inner.target.value; }
     else if (inner.target.id === "goalDescInput") { state.goalDesc = inner.target.value; }
     else if (inner.target.id === "goalTagsInput") { state.goalTags = inner.target.value; }
+    else if (inner.target.id === "tagLabelInput") { state.tagLabel = inner.target.value; }
   })(e);
 });
 
