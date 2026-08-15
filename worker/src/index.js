@@ -949,6 +949,43 @@ export default {
       return json({ ok: true });
     }
 
+    const taskTagAddMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/tasks\/(\d+)\/tags$/);
+    if (taskTagAddMatch && request.method === "POST") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const sessionId = decodeURIComponent(taskTagAddMatch[1]);
+      const taskIndex = Number(taskTagAddMatch[2]);
+      const body = await request.json().catch(() => ({}));
+      const tagId = Number(body.tag_id);
+      if (!Number.isInteger(tagId)) return json({ error: "tag_id is required" }, 400);
+      const tagRow = await env.DB.prepare("SELECT id FROM tags WHERE id = ? AND owner_email = ?").bind(tagId, email).first();
+      if (!tagRow) return json({ error: "tag not found" }, 400);
+      const ctx = await loadTaskForMutation(env, email, sessionId, taskIndex);
+      if (!ctx) return json({ error: "task not found" }, 404);
+      const { report, micro, task } = ctx;
+      task.tags = task.tags || [];
+      if (!task.tags.some(tg => tg.tag_id === tagId)) {
+        task.tags.push({ tag_id: tagId, assign: "user" });
+        await saveMicroFindings(env, report.id, micro);
+      }
+      return json({ ok: true });
+    }
+
+    const taskTagRemoveMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/tasks\/(\d+)\/tags\/(\d+)$/);
+    if (taskTagRemoveMatch && request.method === "DELETE") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const sessionId = decodeURIComponent(taskTagRemoveMatch[1]);
+      const taskIndex = Number(taskTagRemoveMatch[2]);
+      const tagId = Number(taskTagRemoveMatch[3]);
+      const ctx = await loadTaskForMutation(env, email, sessionId, taskIndex);
+      if (!ctx) return json({ error: "task not found" }, 404);
+      const { report, micro, task } = ctx;
+      task.tags = (task.tags || []).filter(tg => tg.tag_id !== tagId);
+      await saveMicroFindings(env, report.id, micro);
+      return json({ ok: true });
+    }
+
     return env.ASSETS.fetch(request);
   },
 };
