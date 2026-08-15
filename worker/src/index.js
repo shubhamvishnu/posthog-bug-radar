@@ -578,6 +578,16 @@ export default {
       return json(results.map(g => ({ ...g, tags: JSON.parse(g.tags || "[]") })));
     }
 
+    if (pathname === "/api/pipeline/tags" && request.method === "GET") {
+      if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const ownerEmail = url.searchParams.get("owner_email");
+      if (!ownerEmail) return json({ error: "owner_email required" }, 400);
+      const { results } = await env.DB.prepare(
+        "SELECT id, label, color, source FROM tags WHERE owner_email = ? ORDER BY id"
+      ).bind(ownerEmail).all();
+      return json(results);
+    }
+
     if (pathname === "/api/pipeline/report/merge" && request.method === "POST") {
       if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
       const body = await request.json().catch(() => ({}));
@@ -906,6 +916,36 @@ export default {
       const email = await getSessionEmail(request, env);
       if (!email) return json({ error: "not authenticated" }, 401);
       await env.DB.prepare("DELETE FROM goals WHERE id = ? AND owner_email = ?").bind(Number(goalDeleteMatch[1]), email).run();
+      return json({ ok: true });
+    }
+
+    if (pathname === "/api/tags" && request.method === "GET") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const { results } = await env.DB.prepare(
+        "SELECT id, label, color, source, created_at FROM tags WHERE owner_email = ? ORDER BY id DESC"
+      ).bind(email).all();
+      return json(results);
+    }
+
+    if (pathname === "/api/tags" && request.method === "POST") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const body = await request.json().catch(() => ({}));
+      const label = String(body.label || "").trim();
+      if (!label) return json({ error: "label is required" }, 400);
+      const colorIdx = Number.isInteger(body.color_idx) && body.color_idx >= 0 && body.color_idx < TAG_PALETTE.length ? body.color_idx : 0;
+      const result = await env.DB.prepare(
+        `INSERT INTO tags (owner_email, label, color, source) VALUES (?, ?, ?, 'user')`
+      ).bind(email, label, TAG_PALETTE[colorIdx]).run();
+      return json({ ok: true, id: result.meta.last_row_id, color: TAG_PALETTE[colorIdx] });
+    }
+
+    const tagDeleteMatch = pathname.match(/^\/api\/tags\/(\d+)$/);
+    if (tagDeleteMatch && request.method === "DELETE") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      await env.DB.prepare("DELETE FROM tags WHERE id = ? AND owner_email = ?").bind(Number(tagDeleteMatch[1]), email).run();
       return json({ ok: true });
     }
 
