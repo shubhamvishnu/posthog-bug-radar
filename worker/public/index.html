@@ -1173,7 +1173,7 @@ function tagChipHtml(tagId, onRemove) {
   const def = TAGS.find(x => x.id === tagId);
   const color = def ? def.color : "#64748b";
   const label = def ? def.label : "Unknown";
-  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${color};background:color-mix(in srgb,${color} 13%,transparent);border:1px solid color-mix(in srgb,${color} 28%,transparent)">${escapeHtml(label)}${onRemove ? `<button data-act="task-tag-remove" data-session="${escapeHtml(onRemove.sessionId)}" data-task="${onRemove.taskIndex}" data-tagid="${tagId}" title="Remove tag" style="display:grid;place-items:center;width:13px;height:13px;margin:-1px -3px -1px 0;border-radius:50%;color:currentColor;opacity:.6">${ICON_X_TINY}</button>` : ""}</span>`;
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${escapeHtml(color)};background:color-mix(in srgb,${escapeHtml(color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(color)} 28%,transparent)">${escapeHtml(label)}${onRemove ? `<button data-act="task-tag-remove" data-session="${escapeHtml(onRemove.sessionId)}" data-task="${onRemove.taskIndex}" data-tagid="${tagId}" title="Remove tag" style="display:grid;place-items:center;width:13px;height:13px;margin:-1px -3px -1px 0;border-radius:50%;color:currentColor;opacity:.6">${ICON_X_TINY}</button>` : ""}</span>`;
 }
 
 function renderSessionTagsRail(f) {
@@ -1189,7 +1189,7 @@ function renderSessionTagsRail(f) {
     const color = def ? def.color : "#64748b";
     const label = def ? def.label : "Unknown";
     const countLabel = entry.count > 1 ? ` <span style="opacity:.7">${entry.count}</span>` : "";
-    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${color};background:color-mix(in srgb,${color} 13%,transparent);border:1px solid color-mix(in srgb,${color} 28%,transparent)">${escapeHtml(label)}${countLabel}</span>`;
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${escapeHtml(color)};background:color-mix(in srgb,${escapeHtml(color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(color)} 28%,transparent)">${escapeHtml(label)}${countLabel}</span>`;
   }).join("");
   return `
   <div class="rail-panel">
@@ -1207,7 +1207,7 @@ function renderTaskTags(f, ti, t) {
   const pickerHtml = pickerOpen ? `
     <div style="margin-top:8px;padding:12px;border:1px solid var(--border-str);border-radius:10px;background:var(--bg-elev)">
       <div style="font-size:11px;color:var(--faint);font-weight:600;letter-spacing:.03em;margin-bottom:9px">ADD FROM YOUR TAG LIBRARY</div>
-      ${addable.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${addable.map(d => `<button data-act="task-tag-add" data-session="${escapeHtml(f.session_id)}" data-task="${ti}" data-tagid="${d.id}" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${d.color};background:color-mix(in srgb,${d.color} 13%,transparent);border:1px solid color-mix(in srgb,${d.color} 28%,transparent)">${escapeHtml(d.label)}</button>`).join("")}</div>`
+      ${addable.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px">${addable.map(d => `<button data-act="task-tag-add" data-session="${escapeHtml(f.session_id)}" data-task="${ti}" data-tagid="${d.id}" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:1;padding:4px 8px;border-radius:20px;color:${escapeHtml(d.color)};background:color-mix(in srgb,${escapeHtml(d.color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(d.color)} 28%,transparent)">${escapeHtml(d.label)}</button>`).join("")}</div>`
         : `<div style="font-size:12px;color:var(--muted)">Every tag is already applied. Create more in Settings → Goals &amp; tags.</div>`}
     </div>` : "";
   return `
