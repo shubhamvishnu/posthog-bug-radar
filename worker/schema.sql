@@ -91,3 +91,12 @@ CREATE TABLE IF NOT EXISTS goals (
   source TEXT NOT NULL DEFAULT 'user',
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  label TEXT NOT NULL,
+  color TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'user',
+  created_at TEXT DEFAULT (datetime('now'))
+);
