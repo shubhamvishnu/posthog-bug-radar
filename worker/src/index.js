@@ -326,7 +326,7 @@ async function resolveGoals(env, ownerEmail, findings) {
       delete t.new_goal;
     }
   }
-  return findings;
+  return { findings, count: createdThisBatch.size };
 }
 
 const TAG_PALETTE = ["#e11d48", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#2563eb", "#7c3aed", "#db2777"];
@@ -380,6 +380,7 @@ async function mergeMediaIntoTask(env, ownerEmail, sessionId, taskIndex, mediaEn
 // just emitted by the pipeline's own LLM call, never a human edit.
 async function resolveTags(env, ownerEmail, findings) {
   const createdThisBatch = new Map(); // normalized label -> tag id
+  let newlyCreatedCount = 0;
   const countRow = await env.DB.prepare("SELECT COUNT(*) as n FROM tags WHERE owner_email = ?").bind(ownerEmail).first();
   let nextColorIndex = countRow.n;
   for (const f of findings) {
@@ -403,6 +404,7 @@ async function resolveTags(env, ownerEmail, findings) {
                 `INSERT INTO tags (owner_email, label, color, source) VALUES (?, ?, ?, 'auto')`
               ).bind(ownerEmail, tg.new_tag.label.trim(), color).run();
               tagId = result.meta.last_row_id;
+              newlyCreatedCount++;
             }
             createdThisBatch.set(key, tagId);
           }
@@ -413,7 +415,7 @@ async function resolveTags(env, ownerEmail, findings) {
       }
     }
   }
-  return findings;
+  return { findings, count: newlyCreatedCount };
 }
 
 async function getLatestReport(db, ownerEmail) {
@@ -514,7 +516,9 @@ export default {
       }
       const body = await request.json();
       const ownerEmail = body.owner_email || DEFAULT_OWNER_EMAIL;
-      const resolvedFindings = await resolveTags(env, ownerEmail, await resolveGoals(env, ownerEmail, body.micro_findings || []));
+      const goalsResult = await resolveGoals(env, ownerEmail, body.micro_findings || []);
+      const tagsResult = await resolveTags(env, ownerEmail, goalsResult.findings);
+      const resolvedFindings = tagsResult.findings;
       await env.DB.prepare(
         `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -531,6 +535,15 @@ export default {
         .run();
       if (body.connection_id) {
         await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(body.connection_id).run();
+        const taskCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).length, 0);
+        const realBugCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).filter(t => t.real_bug).length, 0);
+        const outreachCount = resolvedFindings.filter(f => f.recommended_outreach).length;
+        const captureCount = Number(body.capture_count) || 0;
+        await logConnectionEvent(
+          env, body.connection_id, "sync_completed", "success", "Sync completed",
+          `Pulled ${resolvedFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount} moments captured.`,
+          "scheduled"
+        );
       }
       return json({ ok: true });
     }
@@ -612,7 +625,9 @@ export default {
       const base = await env.DB.prepare("SELECT * FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1").bind(ownerEmail).first();
       const baseMicro = base ? JSON.parse(base.micro_findings) : [];
       const baseMacro = base ? JSON.parse(base.macro_themes) : [];
-      const resolvedNewFindings = await resolveTags(env, ownerEmail, await resolveGoals(env, ownerEmail, newFindings));
+      const goalsResult = await resolveGoals(env, ownerEmail, newFindings);
+      const tagsResult = await resolveTags(env, ownerEmail, goalsResult.findings);
+      const resolvedNewFindings = tagsResult.findings;
       const bySession = new Map(baseMicro.map(f => [f.session_id, f]));
       for (const f of resolvedNewFindings) {
         const old = bySession.get(f.session_id);
@@ -648,6 +663,15 @@ export default {
       ).run();
       if (resolvedConnectionId) {
         await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(resolvedConnectionId).run();
+        const taskCount = resolvedNewFindings.reduce((n, f) => n + (f.tasks || []).length, 0);
+        const realBugCount = resolvedNewFindings.reduce((n, f) => n + (f.tasks || []).filter(t => t.real_bug).length, 0);
+        const outreachCount = resolvedNewFindings.filter(f => f.recommended_outreach).length;
+        const captureCount = Number(body.capture_count) || 0;
+        await logConnectionEvent(
+          env, resolvedConnectionId, "sync_completed", "success", "Sync completed",
+          `Pulled ${resolvedNewFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount} moments captured.`,
+          "manual · targeted"
+        );
       }
       return json({ ok: true, merged_session_ids: newFindings.map(f => f.session_id), total_findings: mergedMicro.length });
     }
