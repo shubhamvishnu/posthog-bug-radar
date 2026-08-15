@@ -527,6 +527,7 @@ def main():
                     trigger_capture(sid, key_ts, conn["id"], idx)
             else:
                 print(f"WARNING: push to {args.worker_url} failed ({resp.status_code}): {resp.text}")
+                raise RuntimeError(f"push to {args.worker_url} failed ({resp.status_code}): {resp.text}")
 
         total_tasks = sum(len(f["tasks"]) for f in findings)
         real_bugs = sum(1 for f in findings for t in f["tasks"] if t.get("real_bug"))

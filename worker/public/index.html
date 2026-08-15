@@ -1559,7 +1559,7 @@ function relTimeLabel(iso) {
 
 async function loadConnEvents(id) {
   const res = await fetch(`/api/connections/${id}/events?limit=20`);
-  if (res.ok) state.connEventsCache[id] = await res.json();
+  state.connEventsCache[id] = res.ok ? await res.json() : [];
   render();
 }
 
