@@ -88,6 +88,16 @@ def fetch_goals(worker_url, secret, owner_email):
     return resp.json()
 
 
+def fetch_tags(worker_url, secret, owner_email):
+    headers = {"Authorization": f"Bearer {secret}"}
+    resp = requests.get(
+        f"{worker_url}/api/pipeline/tags",
+        headers=headers, params={"owner_email": owner_email}, timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def trigger_capture(session_id, key_timestamp, connection_id, task_index):
     """Fire-and-forget: dispatches the GitHub Actions capture workflow. Never
     raises, a failure here must not affect the pipeline's own report push."""
@@ -248,6 +258,17 @@ Never invent a goal_id that isn't in the EXISTING GOALS list above. When in doub
 a loose match and a new goal, prefer creating a new goal, goals should be specific enough
 to be useful, not a catch-all.
 
+EXISTING TAGS -- categories already used to classify tasks in this product:
+{tags_context}
+
+For each task, also assign zero or more tags: labels that categorize what kind of task
+this is (e.g. "UI Bug", "Integration Bug", "Data Sync"), useful for engineering and
+product to group tasks by theme. For each tag that clearly applies, either reuse an
+existing tag's id from EXISTING TAGS above, or, if none fits, propose a new one with just
+a short label. Never invent a tag_id that isn't in the EXISTING TAGS list above. Prefer
+reusing an existing tag over minting a near-duplicate (don't create "UI Bugs" if "UI Bug"
+already exists). Most tasks need 0-2 tags; don't force a tag onto every task.
+
 A single session often contains MORE THAN ONE distinct thing the user was trying to do --
 e.g. they might try to connect an integration, then separately go create a record, then
 separately browse something else. Do not force the whole session into one goal. Instead:
@@ -311,6 +332,7 @@ Return ONLY this JSON object, no prose:
       "goal": "what the user was trying to accomplish in this task, in a few words",
       "goal_id": null OR <id from EXISTING GOALS above>,
       "new_goal": null OR {{"purpose": "...", "description": "...", "tags": ["..."]}},
+      "tags": [] OR [{{"tag_id": <id from EXISTING TAGS above> OR null, "new_tag": {{"label": "..."}} OR null}}],
       "outcome": "completed/abandoned/blocked/unresolved",
       "real_bug": true/false,
       "severity": "high/medium/low/none",
@@ -397,8 +419,11 @@ def main():
     company_context = fetch_company_context(args.worker_url, secret, conn["owner_email"])
     goals = fetch_goals(args.worker_url, secret, conn["owner_email"])
     goals_context = json.dumps([{"id": g["id"], "purpose": g["purpose"], "description": g.get("description"), "tags": g.get("tags", [])} for g in goals]) if goals else "(none yet — every task in this run should propose a new_goal)"
+    tags = fetch_tags(args.worker_url, secret, conn["owner_email"])
+    tags_context = json.dumps([{"id": t["id"], "label": t["label"]} for t in tags]) if tags else "(none yet — propose a new_tag for any task that clearly needs one)"
     print(f"[connection] #{conn['id']} {conn['project_name']} ({conn['region']}) owner={conn['owner_email']}")
     print(f"[goals] {len(goals)} existing goal(s) loaded")
+    print(f"[tags] {len(tags)} existing tag(s) loaded")
 
     themes = None
     theme_prompt = None
@@ -428,7 +453,7 @@ def main():
         events = fetch_session_events(host, project_id, ph_key, sid, session_window, custom_events)
         if not events:
             continue
-        session_prompt = SESSION_PROMPT.format(company_context=company_context, goals_context=goals_context, data=json.dumps(events, default=str))
+        session_prompt = SESSION_PROMPT.format(company_context=company_context, goals_context=goals_context, tags_context=tags_context, data=json.dumps(events, default=str))
         result = call_llm(session_prompt)
         finding = {
             "session_id": sid,
@@ -462,7 +487,7 @@ def main():
     with open(args.out, "w") as f:
         json.dump(report, f, indent=2, default=str)
 
-    session_prompt_sample = SESSION_PROMPT.format(company_context=company_context, goals_context=goals_context, data="<per-session events>")
+    session_prompt_sample = SESSION_PROMPT.format(company_context=company_context, goals_context=goals_context, tags_context=tags_context, data="<per-session events>")
     if not args.no_push:
         if target_session_ids:
             push_body = {
