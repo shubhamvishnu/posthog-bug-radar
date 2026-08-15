@@ -401,137 +401,151 @@ def main():
     secret = keychain("BUGRADAR_API_SECRET")
     conn = fetch_connection(args.worker_url, secret, args.connection_id)
     try:
-        requests.post(
-            f"{args.worker_url}/api/pipeline/connections/{conn['id']}/touch",
-            headers={"Authorization": f"Bearer {secret}"}, timeout=10,
-        )
-    except Exception as e:
-        print(f"WARNING: could not touch heartbeat for connection {conn['id']}: {e}")
-    host = PH_HOSTS[conn["region"]]
-    project_id = conn["project_id"]
-    ph_key = conn["api_key"]
-    identity = {
-        "email": conn.get("identity_email_prop"),
-        "name": conn.get("identity_name_prop"),
-        "role": conn.get("identity_role_prop"),
-    }
-    custom_events = (conn.get("config") or {}).get("customEvents", [])
-    company_context = fetch_company_context(args.worker_url, secret, conn["owner_email"])
-    goals = fetch_goals(args.worker_url, secret, conn["owner_email"])
-    goals_context = json.dumps([{"id": g["id"], "purpose": g["purpose"], "description": g.get("description"), "tags": g.get("tags", [])} for g in goals]) if goals else "(none yet — every task in this run should propose a new_goal)"
-    tags = fetch_tags(args.worker_url, secret, conn["owner_email"])
-    tags_context = json.dumps([{"id": t["id"], "label": t["label"]} for t in tags]) if tags else "(none yet — propose a new_tag for any task that clearly needs one)"
-    print(f"[connection] #{conn['id']} {conn['project_name']} ({conn['region']}) owner={conn['owner_email']}")
-    print(f"[goals] {len(goals)} existing goal(s) loaded")
-    print(f"[tags] {len(tags)} existing tag(s) loaded")
-
-    themes = None
-    theme_prompt = None
-    if target_session_ids:
-        print(f"[targeted] fetching {len(target_session_ids)} specific session(s)...")
-        candidates = fetch_sessions_by_id(host, project_id, ph_key, target_session_ids, identity)
-        found_ids = {c["session_id"] for c in candidates}
-        missing = [sid for sid in target_session_ids if sid not in found_ids]
-        if missing:
-            print(f"WARNING: no events found for session_id(s): {missing}")
-        session_window = "30 DAY"  # bounded, just enough to keep the query fast; not a real relevance cutoff
-    else:
-        print(f"[macro] pulling dead/rage click clusters, last {macro_label}...")
-        clusters = fetch_macro_clusters(host, project_id, ph_key, macro_window, limit=25)
-        print(f"[macro] {len(clusters)} clusters -> naming themes with LLM...")
-        theme_prompt = THEME_PROMPT.format(company_context=company_context, data=json.dumps(clusters, default=str))
-        themes = call_llm(theme_prompt)
-
-        print(f"[micro] finding top {args.sessions} candidate sessions, last {micro_label}...")
-        candidates = fetch_candidate_sessions(host, project_id, ph_key, micro_window, args.sessions, identity)
-
-    findings = []
-    pending_captures = []
-    for c in candidates:
-        sid = c["session_id"]
-        print(f"[micro] {sid}: pulling events + LLM verdict...")
-        events = fetch_session_events(host, project_id, ph_key, sid, session_window, custom_events)
-        if not events:
-            continue
-        session_prompt = SESSION_PROMPT.format(company_context=company_context, goals_context=goals_context, tags_context=tags_context, data=json.dumps(events, default=str))
-        result = call_llm(session_prompt)
-        finding = {
-            "session_id": sid,
-            "replay_url": f"{host}/project/{project_id}/replay/{sid}",
-            "started_at": c["started_at"],
-            "person": {
-                "person_id": c.get("person_id"),
-                "email": c.get("email"),
-                "name": c.get("name"),
-                "role": c.get("role"),
-            },
-            "triage_counts": {
-                "dead_clicks": c["dead_clicks"],
-                "rage_clicks": c["rage_clicks"],
-                "exceptions": c["exceptions"],
-            },
-            "events": events,
-            "tasks": result.get("tasks", []),
-            "recommended_outreach": result.get("recommended_outreach"),
+        try:
+            requests.post(
+                f"{args.worker_url}/api/pipeline/connections/{conn['id']}/touch",
+                headers={"Authorization": f"Bearer {secret}"}, timeout=10,
+            )
+        except Exception as e:
+            print(f"WARNING: could not touch heartbeat for connection {conn['id']}: {e}")
+        host = PH_HOSTS[conn["region"]]
+        project_id = conn["project_id"]
+        ph_key = conn["api_key"]
+        identity = {
+            "email": conn.get("identity_email_prop"),
+            "name": conn.get("identity_name_prop"),
+            "role": conn.get("identity_role_prop"),
         }
-        for idx, task in enumerate(finding["tasks"]):
-            if task.get("outcome") == "blocked" or task.get("severity") == "high":
-                pending_captures.append((sid, task.get("key_timestamp") or c["started_at"], idx))
-        findings.append(finding)
+        custom_events = (conn.get("config") or {}).get("customEvents", [])
+        company_context = fetch_company_context(args.worker_url, secret, conn["owner_email"])
+        goals = fetch_goals(args.worker_url, secret, conn["owner_email"])
+        goals_context = json.dumps([{"id": g["id"], "purpose": g["purpose"], "description": g.get("description"), "tags": g.get("tags", [])} for g in goals]) if goals else "(none yet — every task in this run should propose a new_goal)"
+        tags = fetch_tags(args.worker_url, secret, conn["owner_email"])
+        tags_context = json.dumps([{"id": t["id"], "label": t["label"]} for t in tags]) if tags else "(none yet — propose a new_tag for any task that clearly needs one)"
+        print(f"[connection] #{conn['id']} {conn['project_name']} ({conn['region']}) owner={conn['owner_email']}")
+        print(f"[goals] {len(goals)} existing goal(s) loaded")
+        print(f"[tags] {len(tags)} existing tag(s) loaded")
 
-    report = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "macro_themes": themes,
-        "micro_findings": findings,
-    }
-    with open(args.out, "w") as f:
-        json.dump(report, f, indent=2, default=str)
-
-    session_prompt_sample = SESSION_PROMPT.format(company_context=company_context, goals_context=goals_context, tags_context=tags_context, data="<per-session events>")
-    if not args.no_push:
+        themes = None
+        theme_prompt = None
         if target_session_ids:
-            push_body = {
-                "owner_email": conn["owner_email"],
-                "connection_id": conn["id"],
-                "findings": findings,
-                "session_prompt": session_prompt_sample,
-            }
-            resp = requests.post(
-                f"{args.worker_url}/api/pipeline/report/merge",
-                headers={"Authorization": f"Bearer {secret}"},
-                json=push_body,
-                timeout=30,
-            )
+            print(f"[targeted] fetching {len(target_session_ids)} specific session(s)...")
+            candidates = fetch_sessions_by_id(host, project_id, ph_key, target_session_ids, identity)
+            found_ids = {c["session_id"] for c in candidates}
+            missing = [sid for sid in target_session_ids if sid not in found_ids]
+            if missing:
+                print(f"WARNING: no events found for session_id(s): {missing}")
+            session_window = "30 DAY"  # bounded, just enough to keep the query fast; not a real relevance cutoff
         else:
-            push_body = {
-                "generated_at": report["generated_at"],
-                "macro_themes": report["macro_themes"],
-                "micro_findings": report["micro_findings"],
-                "theme_prompt": theme_prompt,
-                "session_prompt": session_prompt_sample,
-                "owner_email": conn["owner_email"],
-                "connection_id": conn["id"],
-            }
-            resp = requests.post(
-                f"{args.worker_url}/api/report",
-                headers={"Authorization": f"Bearer {secret}"},
-                json=push_body,
-                timeout=30,
-            )
-        if resp.status_code == 200:
-            print(f"Pushed to {args.worker_url}")
-            for sid, key_ts, idx in pending_captures:
-                trigger_capture(sid, key_ts, conn["id"], idx)
-        else:
-            print(f"WARNING: push to {args.worker_url} failed ({resp.status_code}): {resp.text}")
+            print(f"[macro] pulling dead/rage click clusters, last {macro_label}...")
+            clusters = fetch_macro_clusters(host, project_id, ph_key, macro_window, limit=25)
+            print(f"[macro] {len(clusters)} clusters -> naming themes with LLM...")
+            theme_prompt = THEME_PROMPT.format(company_context=company_context, data=json.dumps(clusters, default=str))
+            themes = call_llm(theme_prompt)
 
-    total_tasks = sum(len(f["tasks"]) for f in findings)
-    real_bugs = sum(1 for f in findings for t in f["tasks"] if t.get("real_bug"))
-    outreach_count = sum(1 for f in findings if f.get("recommended_outreach"))
-    theme_count = len(themes) if themes is not None else 0
-    print(f"\nDone. {theme_count} macro themes, {len(findings)} sessions -> {total_tasks} tasks, {real_bugs} flagged as real bugs.")
-    print(f"{outreach_count}/{len(findings)} sessions have a recommended customer outreach.")
-    print(f"Report written to {args.out}")
+            print(f"[micro] finding top {args.sessions} candidate sessions, last {micro_label}...")
+            candidates = fetch_candidate_sessions(host, project_id, ph_key, micro_window, args.sessions, identity)
+
+        findings = []
+        pending_captures = []
+        for c in candidates:
+            sid = c["session_id"]
+            print(f"[micro] {sid}: pulling events + LLM verdict...")
+            events = fetch_session_events(host, project_id, ph_key, sid, session_window, custom_events)
+            if not events:
+                continue
+            session_prompt = SESSION_PROMPT.format(company_context=company_context, goals_context=goals_context, tags_context=tags_context, data=json.dumps(events, default=str))
+            result = call_llm(session_prompt)
+            finding = {
+                "session_id": sid,
+                "replay_url": f"{host}/project/{project_id}/replay/{sid}",
+                "started_at": c["started_at"],
+                "person": {
+                    "person_id": c.get("person_id"),
+                    "email": c.get("email"),
+                    "name": c.get("name"),
+                    "role": c.get("role"),
+                },
+                "triage_counts": {
+                    "dead_clicks": c["dead_clicks"],
+                    "rage_clicks": c["rage_clicks"],
+                    "exceptions": c["exceptions"],
+                },
+                "events": events,
+                "tasks": result.get("tasks", []),
+                "recommended_outreach": result.get("recommended_outreach"),
+            }
+            for idx, task in enumerate(finding["tasks"]):
+                if task.get("outcome") == "blocked" or task.get("severity") == "high":
+                    pending_captures.append((sid, task.get("key_timestamp") or c["started_at"], idx))
+            findings.append(finding)
+
+        report = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "macro_themes": themes,
+            "micro_findings": findings,
+        }
+        with open(args.out, "w") as f:
+            json.dump(report, f, indent=2, default=str)
+
+        session_prompt_sample = SESSION_PROMPT.format(company_context=company_context, goals_context=goals_context, tags_context=tags_context, data="<per-session events>")
+        if not args.no_push:
+            if target_session_ids:
+                push_body = {
+                    "owner_email": conn["owner_email"],
+                    "connection_id": conn["id"],
+                    "findings": findings,
+                    "session_prompt": session_prompt_sample,
+                    "capture_count": len(pending_captures),
+                }
+                resp = requests.post(
+                    f"{args.worker_url}/api/pipeline/report/merge",
+                    headers={"Authorization": f"Bearer {secret}"},
+                    json=push_body,
+                    timeout=30,
+                )
+            else:
+                push_body = {
+                    "generated_at": report["generated_at"],
+                    "macro_themes": report["macro_themes"],
+                    "micro_findings": report["micro_findings"],
+                    "theme_prompt": theme_prompt,
+                    "session_prompt": session_prompt_sample,
+                    "owner_email": conn["owner_email"],
+                    "connection_id": conn["id"],
+                    "capture_count": len(pending_captures),
+                }
+                resp = requests.post(
+                    f"{args.worker_url}/api/report",
+                    headers={"Authorization": f"Bearer {secret}"},
+                    json=push_body,
+                    timeout=30,
+                )
+            if resp.status_code == 200:
+                print(f"Pushed to {args.worker_url}")
+                for sid, key_ts, idx in pending_captures:
+                    trigger_capture(sid, key_ts, conn["id"], idx)
+            else:
+                print(f"WARNING: push to {args.worker_url} failed ({resp.status_code}): {resp.text}")
+
+        total_tasks = sum(len(f["tasks"]) for f in findings)
+        real_bugs = sum(1 for f in findings for t in f["tasks"] if t.get("real_bug"))
+        outreach_count = sum(1 for f in findings if f.get("recommended_outreach"))
+        theme_count = len(themes) if themes is not None else 0
+        print(f"\nDone. {theme_count} macro themes, {len(findings)} sessions -> {total_tasks} tasks, {real_bugs} flagged as real bugs.")
+        print(f"{outreach_count}/{len(findings)} sessions have a recommended customer outreach.")
+        print(f"Report written to {args.out}")
+    except Exception as e:
+        print(f"ERROR: pipeline run failed for connection {conn['id']}: {e}")
+        try:
+            requests.post(
+                f"{args.worker_url}/api/pipeline/connections/{conn['id']}/sync-failed",
+                headers={"Authorization": f"Bearer {secret}"},
+                json={"error": str(e)}, timeout=10,
+            )
+        except Exception as report_err:
+            print(f"WARNING: could not report sync failure: {report_err}")
+        raise
 
 
 if __name__ == "__main__":
