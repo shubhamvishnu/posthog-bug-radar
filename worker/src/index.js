@@ -367,7 +367,7 @@ async function mergeMediaIntoTask(env, ownerEmail, sessionId, taskIndex, mediaEn
   return true;
 }
 
-// Walts findings' tasks; any tag entry with `new_tag` and no `tag_id` gets a real
+// Walks findings' tasks; any tag entry with `new_tag` and no `tag_id` gets a real
 // tags row created (source: 'auto'), deduped within this same batch by label,
 // with the next color assigned round-robin from TAG_PALETTE. Every entry (new or
 // matched-existing) is stamped assign: 'auto' -- everything resolveTags sees was
@@ -380,16 +380,24 @@ async function resolveTags(env, ownerEmail, findings) {
     for (const t of f.tasks || []) {
       if (!Array.isArray(t.tags)) continue;
       for (const tg of t.tags) {
+        if (!tg || typeof tg !== "object") continue;
         if (!tg.tag_id && tg.new_tag && tg.new_tag.label) {
           const key = tg.new_tag.label.trim().toLowerCase();
           let tagId = createdThisBatch.get(key);
           if (!tagId) {
-            const color = TAG_PALETTE[nextColorIndex % TAG_PALETTE.length];
-            nextColorIndex++;
-            const result = await env.DB.prepare(
-              `INSERT INTO tags (owner_email, label, color, source) VALUES (?, ?, ?, 'auto')`
-            ).bind(ownerEmail, tg.new_tag.label.trim(), color).run();
-            tagId = result.meta.last_row_id;
+            const existing = await env.DB.prepare(
+              "SELECT id FROM tags WHERE owner_email = ? AND lower(label) = ?"
+            ).bind(ownerEmail, key).first();
+            if (existing) {
+              tagId = existing.id;
+            } else {
+              const color = TAG_PALETTE[nextColorIndex % TAG_PALETTE.length];
+              nextColorIndex++;
+              const result = await env.DB.prepare(
+                `INSERT INTO tags (owner_email, label, color, source) VALUES (?, ?, ?, 'auto')`
+              ).bind(ownerEmail, tg.new_tag.label.trim(), color).run();
+              tagId = result.meta.last_row_id;
+            }
             createdThisBatch.set(key, tagId);
           }
           tg.tag_id = tagId;
@@ -600,7 +608,24 @@ export default {
       const baseMacro = base ? JSON.parse(base.macro_themes) : [];
       const resolvedNewFindings = await resolveTags(env, ownerEmail, await resolveGoals(env, ownerEmail, newFindings));
       const bySession = new Map(baseMicro.map(f => [f.session_id, f]));
-      for (const f of resolvedNewFindings) bySession.set(f.session_id, f);
+      for (const f of resolvedNewFindings) {
+        const old = bySession.get(f.session_id);
+        if (old) {
+          (old.tasks || []).forEach((oldTask, i) => {
+            const userTags = (oldTask.tags || []).filter(tg => tg.assign === "user");
+            if (userTags.length && f.tasks && f.tasks[i]) {
+              const newTask = f.tasks[i];
+              newTask.tags = newTask.tags || [];
+              for (const ut of userTags) {
+                if (!newTask.tags.some(tg => tg.tag_id === ut.tag_id)) {
+                  newTask.tags.push(ut);
+                }
+              }
+            }
+          });
+        }
+        bySession.set(f.session_id, f);
+      }
       const mergedMicro = Array.from(bySession.values());
       const resolvedConnectionId = connectionId || (base ? base.connection_id : null);
       await env.DB.prepare(
