@@ -684,6 +684,15 @@ export default {
       return json({ ok: true });
     }
 
+    const syncFailedMatch = pathname.match(/^\/api\/pipeline\/connections\/(\d+)\/sync-failed$/);
+    if (syncFailedMatch && request.method === "POST") {
+      if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const id = Number(syncFailedMatch[1]);
+      const body = await request.json().catch(() => ({}));
+      await logConnectionEvent(env, id, "sync_failed", "error", "Sync failed", String(body.error || "Unknown error"), "scheduled");
+      return json({ ok: true });
+    }
+
     if (pathname === "/api/pipeline/media" && request.method === "POST") {
       if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
       const sessionId = url.searchParams.get("session_id");
@@ -902,6 +911,20 @@ export default {
         `Sync frequency set to ${syncFreq} · max sessions set to ${syncMaxSessions}.`, `you · ${email}`
       );
       return json({ ok: true });
+    }
+
+    const eventsMatch = pathname.match(/^\/api\/connections\/(\d+)\/events$/);
+    if (eventsMatch && request.method === "GET") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const id = Number(eventsMatch[1]);
+      const conn = await env.DB.prepare("SELECT id FROM connections WHERE id = ? AND owner_email = ?").bind(id, email).first();
+      if (!conn) return json({ error: "not found" }, 404);
+      const limit = Math.min(Number(url.searchParams.get("limit")) || 20, 100);
+      const { results } = await env.DB.prepare(
+        "SELECT id, kind, status, title, detail, trigger_label, created_at FROM connection_events WHERE connection_id = ? ORDER BY id DESC LIMIT ?"
+      ).bind(id, limit).all();
+      return json(results);
     }
 
     if (pathname === "/api/company-knowledge" && request.method === "GET") {
