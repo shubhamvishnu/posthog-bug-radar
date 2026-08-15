@@ -100,3 +100,14 @@ CREATE TABLE IF NOT EXISTS tags (
   source TEXT NOT NULL DEFAULT 'user',
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS connection_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  connection_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  title TEXT NOT NULL,
+  detail TEXT,
+  trigger_label TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
