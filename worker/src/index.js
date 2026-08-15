@@ -329,25 +329,77 @@ async function resolveGoals(env, ownerEmail, findings) {
   return findings;
 }
 
-// Best-effort: finds the task by session_id + task_index in whatever report is
-// currently latest for this owner, and appends a media entry to it. If that
-// session/task isn't in the latest report anymore (a newer run replaced it),
-// this is a no-op, not an error, the screenshot is simply dropped, matching
-// this feature's fail-soft design.
-async function mergeMediaIntoTask(env, ownerEmail, sessionId, taskIndex, mediaEntry) {
-  const base = await env.DB.prepare("SELECT * FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1").bind(ownerEmail).first();
-  if (!base) return false;
-  const micro = JSON.parse(base.micro_findings);
+const TAG_PALETTE = ["#e11d48", "#ea580c", "#ca8a04", "#16a34a", "#0891b2", "#2563eb", "#7c3aed", "#db2777"];
+
+// Finds the task by session_id + task_index inside whatever report is currently
+// latest for this owner. Returns null if there's no report yet, or if that
+// session/task isn't in it (a newer pipeline run replaced it). Shared by every
+// route that needs to read or patch a single already-pushed task in place.
+async function loadTaskForMutation(env, ownerEmail, sessionId, taskIndex) {
+  const report = await env.DB.prepare("SELECT * FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1").bind(ownerEmail).first();
+  if (!report) return null;
+  const micro = JSON.parse(report.micro_findings);
   const finding = micro.find(f => f.session_id === sessionId);
   const task = finding && finding.tasks && finding.tasks[taskIndex];
-  if (!task) return false;
+  if (!task) return null;
+  return { report, micro, finding, task };
+}
+
+async function saveMicroFindings(env, reportId, micro) {
+  await env.DB.prepare("UPDATE reports SET micro_findings = ? WHERE id = ?")
+    .bind(JSON.stringify(micro), reportId)
+    .run();
+}
+
+// Best-effort: appends a media entry to a task via loadTaskForMutation. If that
+// session/task isn't in the latest report anymore, this is a no-op, not an
+// error, the screenshot is simply dropped, matching this feature's fail-soft
+// design (unlike the live tag-mutation routes below, which DO error on a miss,
+// since those have a human waiting on the result).
+async function mergeMediaIntoTask(env, ownerEmail, sessionId, taskIndex, mediaEntry) {
+  const ctx = await loadTaskForMutation(env, ownerEmail, sessionId, taskIndex);
+  if (!ctx) return false;
+  const { report, micro, task } = ctx;
   if (task.key_timestamp && task.key_timestamp !== mediaEntry.ts) return false;
   task.media = task.media || [];
   task.media.push(mediaEntry);
-  await env.DB.prepare("UPDATE reports SET micro_findings = ? WHERE id = ?")
-    .bind(JSON.stringify(micro), base.id)
-    .run();
+  await saveMicroFindings(env, report.id, micro);
   return true;
+}
+
+// Walts findings' tasks; any tag entry with `new_tag` and no `tag_id` gets a real
+// tags row created (source: 'auto'), deduped within this same batch by label,
+// with the next color assigned round-robin from TAG_PALETTE. Every entry (new or
+// matched-existing) is stamped assign: 'auto' -- everything resolveTags sees was
+// just emitted by the pipeline's own LLM call, never a human edit.
+async function resolveTags(env, ownerEmail, findings) {
+  const createdThisBatch = new Map(); // normalized label -> tag id
+  const countRow = await env.DB.prepare("SELECT COUNT(*) as n FROM tags WHERE owner_email = ?").bind(ownerEmail).first();
+  let nextColorIndex = countRow.n;
+  for (const f of findings) {
+    for (const t of f.tasks || []) {
+      if (!Array.isArray(t.tags)) continue;
+      for (const tg of t.tags) {
+        if (!tg.tag_id && tg.new_tag && tg.new_tag.label) {
+          const key = tg.new_tag.label.trim().toLowerCase();
+          let tagId = createdThisBatch.get(key);
+          if (!tagId) {
+            const color = TAG_PALETTE[nextColorIndex % TAG_PALETTE.length];
+            nextColorIndex++;
+            const result = await env.DB.prepare(
+              `INSERT INTO tags (owner_email, label, color, source) VALUES (?, ?, ?, 'auto')`
+            ).bind(ownerEmail, tg.new_tag.label.trim(), color).run();
+            tagId = result.meta.last_row_id;
+            createdThisBatch.set(key, tagId);
+          }
+          tg.tag_id = tagId;
+        }
+        tg.assign = "auto";
+        delete tg.new_tag;
+      }
+    }
+  }
+  return findings;
 }
 
 async function getLatestReport(db, ownerEmail) {
@@ -448,7 +500,7 @@ export default {
       }
       const body = await request.json();
       const ownerEmail = body.owner_email || DEFAULT_OWNER_EMAIL;
-      const resolvedFindings = await resolveGoals(env, ownerEmail, body.micro_findings || []);
+      const resolvedFindings = await resolveTags(env, ownerEmail, await resolveGoals(env, ownerEmail, body.micro_findings || []));
       await env.DB.prepare(
         `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -536,7 +588,7 @@ export default {
       const base = await env.DB.prepare("SELECT * FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1").bind(ownerEmail).first();
       const baseMicro = base ? JSON.parse(base.micro_findings) : [];
       const baseMacro = base ? JSON.parse(base.macro_themes) : [];
-      const resolvedNewFindings = await resolveGoals(env, ownerEmail, newFindings);
+      const resolvedNewFindings = await resolveTags(env, ownerEmail, await resolveGoals(env, ownerEmail, newFindings));
       const bySession = new Map(baseMicro.map(f => [f.session_id, f]));
       for (const f of resolvedNewFindings) bySession.set(f.session_id, f);
       const mergedMicro = Array.from(bySession.values());
