@@ -30,7 +30,7 @@ function sqliteTimeToMs(sqliteText) {
 async function getSessionEmail(request, env) {
   const token = getCookie(request, SESSION_COOKIE);
   if (!token) return null;
-  const row = await env.DB.prepare("SELECT email, expires_at FROM sessions WHERE token = ?")
+  const row = await env.DB.prepare("SELECT email, expires_at FROM sessions WHERE token = ? AND surface = 'admin'")
     .bind(token)
     .first();
   if (!row) return null;
@@ -86,14 +86,14 @@ export default {
         return json({ error: "not found" }, 404);
       }
       const recent = await env.DB.prepare(
-        "SELECT created_at FROM otp_codes WHERE email = ? ORDER BY id DESC LIMIT 1"
+        "SELECT created_at FROM otp_codes WHERE email = ? AND surface = 'admin' ORDER BY id DESC LIMIT 1"
       ).bind(email).first();
       if (recent && Date.now() - sqliteTimeToMs(recent.created_at) < OTP_RESEND_COOLDOWN_MS) {
         return json({ error: "Please wait before requesting another code." }, 429);
       }
       const code = randomOtp();
       const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
-      await env.DB.prepare("INSERT INTO otp_codes (email, code, expires_at) VALUES (?, ?, ?)")
+      await env.DB.prepare("INSERT INTO otp_codes (email, code, expires_at, surface) VALUES (?, ?, ?, 'admin')")
         .bind(email, code, expiresAt)
         .run();
       try {
@@ -112,7 +112,7 @@ export default {
         return json({ error: "That code doesn't match." }, 401);
       }
       const row = await env.DB.prepare(
-        "SELECT * FROM otp_codes WHERE email = ? AND consumed = 0 ORDER BY id DESC LIMIT 1"
+        "SELECT * FROM otp_codes WHERE email = ? AND consumed = 0 AND surface = 'admin' ORDER BY id DESC LIMIT 1"
       ).bind(email).first();
       if (!row || Date.parse(row.expires_at) < Date.now()) {
         return json({ error: "That code has expired. Request a new one." }, 401);
@@ -129,7 +129,7 @@ export default {
       const token = crypto.randomUUID();
       const maxAge = SESSION_DAYS * 24 * 60 * 60;
       const expiresAt = new Date(Date.now() + maxAge * 1000).toISOString();
-      await env.DB.prepare("INSERT INTO sessions (token, email, expires_at) VALUES (?, ?, ?)")
+      await env.DB.prepare("INSERT INTO sessions (token, email, expires_at, surface) VALUES (?, ?, ?, 'admin')")
         .bind(token, email, expiresAt)
         .run();
       return json({ ok: true, email }, 200, { "set-cookie": sessionCookieHeader(token, maxAge) });

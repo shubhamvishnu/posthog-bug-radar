@@ -48,7 +48,7 @@ worker-admin/       (new)
 1. `request-otp` here immediately 404s (`{"error":"not found"}`, so an attacker can't even infer this is an admin endpoint) for any email that isn't `shubhamvishnu@gmail.com`. No code is ever generated or sent for anyone else.
 2. Every data route additionally calls `adminAuthed(request, env)` → `getSessionEmail(request, env) === ADMIN_EMAIL`. This is the real gate — the `request-otp` restriction is defense in depth, not the only check.
 
-Because this Worker is a different origin, its session cookie is naturally scoped separately from the main app's — logging into one never grants the other.
+Both `otp_codes` and `sessions` carry a `surface` column (`'main'` or `'admin'`) set at write time and checked on every read, so a session token or OTP code issued by one surface is rejected by the other's queries — not just cookie-scoped by origin as originally (incorrectly) claimed here. Logging into one never grants the other, at the token level, not only at the cookie level.
 
 ## Data model
 

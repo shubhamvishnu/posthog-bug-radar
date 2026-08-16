@@ -81,6 +81,9 @@ html[data-theme="dark"]{
 <div id="app"></div>
 <script>
 function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+// CSS-property context (interpolated into a style="..." attribute), not HTML-entity context —
+// HTML escaping alone doesn't stop CSS-declaration injection, so validate the shape instead.
+function safeColor(c) { return /^#[0-9a-f]{6}$/i.test(c || "") ? c : "#64748b"; }
 
 function getTheme() { return localStorage.getItem("bra_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }
 
@@ -210,7 +213,7 @@ function renderGoalsLibrary() {
 
 function renderTagsLibrary() {
   const tags = USER_DETAIL.tags || [];
-  const chip = t => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 8px;border-radius:20px;color:${escapeHtml(t.color)};background:color-mix(in srgb,${escapeHtml(t.color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(t.color)} 28%,transparent)">${escapeHtml(t.label)}</span>`;
+  const chip = t => { const c = safeColor(t.color); return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 8px;border-radius:20px;color:${c};background:color-mix(in srgb,${c} 13%,transparent);border:1px solid color-mix(in srgb,${c} 28%,transparent)">${escapeHtml(t.label)}</span>`; };
   return `
   <div class="section-title">Tags<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${tags.length}</span></div>
   <div class="panel" style="padding:16px 18px"><div style="display:flex;flex-wrap:wrap;gap:8px">${tags.length ? tags.map(chip).join("") : `<span class="empty-note">No tags yet.</span>`}</div></div>`;
@@ -241,8 +244,8 @@ function sevOf(t) { return t.severity || "none"; }
 
 function tagChipHtml(tag) {
   if (!tag) return "";
-  const color = tag.color || "#64748b";
-  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 8px;border-radius:20px;color:${escapeHtml(color)};background:color-mix(in srgb,${escapeHtml(color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(color)} 28%,transparent)">${escapeHtml(tag.label)}</span>`;
+  const color = safeColor(tag.color);
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 8px;border-radius:20px;color:${color};background:color-mix(in srgb,${color} 13%,transparent);border:1px solid color-mix(in srgb,${color} 28%,transparent)">${escapeHtml(tag.label)}</span>`;
 }
 
 function taskTagsHtml(t) {
