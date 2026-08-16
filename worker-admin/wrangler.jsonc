@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bug-radar-admin",
+  "main": "src/index.js",
+  "compatibility_date": "2025-08-01",
+  "account_id": "ad1a4dda1125569690132b861f95a63a",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bug-radar-db",
+      "database_id": "65292c22-00df-42a0-ad9b-b5bb97dee409"
+    }
+  ],
+  "vars": {
+    "RESEND_FROM": "Bug Radar Admin <login@revsight.io>",
+    "MAIN_WORKER_URL": "https://bug-radar.shubhamvishnu.workers.dev"
+  }
+}
