@@ -86,7 +86,7 @@ function getTheme() { return localStorage.getItem("bra_theme") || (matchMedia("(
 
 const AUTH = { email: null };
 const loginState = { step: "email", email: "", sending: false, emailError: "", otp: ["", "", "", "", "", ""], otpError: "", verifying: false, resendIn: 0 };
-const state = { view: "overview", selUserEmail: null };
+const state = { view: "overview", selUserEmail: null, expandedTask: {}, expandedMoments: {} };
 
 let OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {} };
 let EVENTS = [];
@@ -235,8 +235,106 @@ function renderCorrectionsTable() {
   </div>`;
 }
 
+const SEV_VAR = { high: "var(--sev-high)", medium: "var(--sev-med)", low: "var(--faint)", none: "var(--faint)" };
+
+function sevOf(t) { return t.severity || "none"; }
+
+function tagChipHtml(tag) {
+  if (!tag) return "";
+  const color = tag.color || "#64748b";
+  return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 8px;border-radius:20px;color:${escapeHtml(color)};background:color-mix(in srgb,${escapeHtml(color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(color)} 28%,transparent)">${escapeHtml(tag.label)}</span>`;
+}
+
+function taskTagsHtml(t) {
+  const tagIds = (t.tags || []).map(tg => tg.tag_id);
+  const defs = (USER_DETAIL.tags || []).filter(d => tagIds.includes(d.id));
+  return defs.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin:8px 0">${defs.map(tagChipHtml).join("")}</div>` : "";
+}
+
+function taskGoalBadgeHtml(t) {
+  if (!t.goal_id) return "";
+  const goal = (USER_DETAIL.goals || []).find(g => g.id === t.goal_id);
+  if (!goal) return "";
+  return `<div style="font-size:12px;color:var(--muted);margin:6px 0"><span style="color:var(--faint)">Goal ·</span> ${escapeHtml(goal.purpose)}</div>`;
+}
+
+function toggleTask(key) {
+  state.expandedTask[key] = !state.expandedTask[key];
+  render();
+}
+
+function toggleMoments(key) {
+  state.expandedMoments[key] = !state.expandedMoments[key];
+  render();
+}
+
+function renderCapturedMomentsRO(f, ti, t) {
+  const media = t.media || [];
+  if (!media.length) return "";
+  const key = `${f.session_id}:${ti}`;
+  const shown = !!state.expandedMoments[key];
+  // task.media[].url is stored as "/api/media/<key>" (main app's own route shape); worker-admin
+  // serves the identical path shape from its own /api/media/:key proxy, so it's used as-is.
+  const grid = media.map(m => `
+    <div style="position:relative;width:120px;height:76px;flex:none;border-radius:8px;overflow:hidden;background:var(--bg-sub)">
+      ${m.url ? `<img src="${escapeHtml(m.url)}" alt="Captured moment" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" onerror="this.style.display='none'"/>` : ""}
+      <span style="position:absolute;left:6px;bottom:5px;font-size:10px;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6)">${escapeHtml(m.ts || "")}</span>
+    </div>`).join("");
+  return `
+  <div style="margin-top:10px">
+    <button data-act="toggle-moments" data-key="${escapeHtml(key)}" style="font-size:11px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:5px">CAPTURED MOMENTS <span style="color:var(--faint)">${media.length}</span></button>
+    ${shown ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${grid}</div>` : ""}
+  </div>`;
+}
+
+function renderTaskCardRO(f, ti, t) {
+  const key = `${f.session_id}:${ti}`;
+  const open = !!state.expandedTask[key];
+  return `
+  <div style="border-top:1px solid var(--border-soft)">
+    <button data-act="toggle-task" data-key="${escapeHtml(key)}" style="display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:12px 0">
+      <span style="font-size:13px;font-weight:600;flex:1;min-width:0">${escapeHtml(t.title)}</span>
+      <span style="font-size:11.5px;font-weight:500;color:${SEV_VAR[sevOf(t)]}">${escapeHtml(sevOf(t))}</span>
+      <span style="width:7px;height:7px;border-radius:50%;background:${t.real_bug ? "var(--sev-high)" : "var(--faint)"}" title="${t.real_bug ? "Real bug" : "Not a bug"}"></span>
+    </button>
+    ${open ? `
+    <div style="padding-bottom:14px">
+      ${taskGoalBadgeHtml(t)}
+      ${taskTagsHtml(t)}
+      <p style="font-size:12.5px;color:var(--muted);line-height:1.55;margin:6px 0">${escapeHtml(t.narrative || "")}</p>
+      ${renderCapturedMomentsRO(f, ti, t)}
+    </div>` : ""}
+  </div>`;
+}
+
+function renderSessionCardRO(f) {
+  const tasks = f.tasks || [];
+  return `
+  <div class="panel" style="margin-bottom:12px">
+    <div style="padding:14px 0 4px;display:flex;align-items:center;gap:10px">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--faint)">${escapeHtml((f.session_id || "").slice(0, 12))}</span>
+      <span style="font-size:12px;color:var(--muted)">${tasks.length} task${tasks.length === 1 ? "" : "s"}</span>
+      ${f.recommended_outreach ? `<span style="margin-left:auto;font-size:10.5px;font-weight:600;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);padding:2px 8px;border-radius:6px">Outreach recommended</span>` : ""}
+    </div>
+    ${tasks.map((t, ti) => renderTaskCardRO(f, ti, t)).join("")}
+  </div>`;
+}
+
 function renderLatestReportSection() {
-  return `<div class="section-title">Latest report</div><div class="panel"><div class="empty-note">Report rendering lands in Task 10.</div></div>`;
+  const report = USER_DETAIL.latest_report;
+  const history = USER_DETAIL.report_history || [];
+  const historyHtml = history.length ? `
+    <div style="font-size:11.5px;color:var(--faint);margin:10px 0 18px">
+      ${history.map(r => `${escapeHtml(String(r.generated_at || "").slice(0, 10))} · ${r.task_count} tasks`).join(" &nbsp;·&nbsp; ")}
+    </div>` : "";
+  if (!report) {
+    return `<div class="section-title">Latest report</div><div class="panel"><div class="empty-note">No report yet.</div></div>${historyHtml}`;
+  }
+  const findings = report.micro_findings || [];
+  return `
+  <div class="section-title">Latest report<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${escapeHtml(String(report.generated_at || "").slice(0, 10))}</span></div>
+  ${historyHtml}
+  ${findings.length ? findings.map(renderSessionCardRO).join("") : `<div class="panel"><div class="empty-note">No sessions in this report.</div></div>`}`;
 }
 
 function renderUserDetail() {
@@ -470,6 +568,8 @@ document.addEventListener("click", e => {
   else if (act === "logout") logout();
   else if (act === "nav") { state.view = el.dataset.view; if (el.dataset.view === "users" && !USERS.length) loadUsers(); render(); }
   else if (act === "open-user") { openUser(el.dataset.email); }
+  else if (act === "toggle-task") { toggleTask(el.dataset.key); }
+  else if (act === "toggle-moments") { toggleMoments(el.dataset.key); }
 });
 
 document.addEventListener("input", e => {
