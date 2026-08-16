@@ -141,6 +141,7 @@ async function openUser(email) {
   USER_DETAIL = null;
   render();
   const res = await fetch(`/api/users/${encodeURIComponent(email)}`);
+  if (state.selUserEmail !== email) return; // a newer click superseded this request
   if (res.ok) USER_DETAIL = await res.json();
   render();
 }
@@ -235,6 +236,7 @@ async function verifyLoginOtp() {
     }
     AUTH.email = data.email;
     await loadOverview();
+    await loadUsers();
     render();
   } catch (e) {
     loginState.verifying = false;
@@ -416,6 +418,10 @@ async function checkAuth() {
 async function logout() {
   try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) {}
   AUTH.email = null;
+  USERS = [];
+  OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {} };
+  EVENTS = [];
+  USER_DETAIL = null;
   loginState.step = "email";
   loginState.email = "";
   loginState.otp = ["", "", "", "", "", ""];
