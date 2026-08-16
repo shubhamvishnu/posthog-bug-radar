@@ -86,10 +86,12 @@ function getTheme() { return localStorage.getItem("bra_theme") || (matchMedia("(
 
 const AUTH = { email: null };
 const loginState = { step: "email", email: "", sending: false, emailError: "", otp: ["", "", "", "", "", ""], otpError: "", verifying: false, resendIn: 0 };
-const state = { view: "overview" };
+const state = { view: "overview", selUserEmail: null };
 
 let OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {} };
 let EVENTS = [];
+let USERS = [];
+let USER_DETAIL = null;
 
 const AUDIT_STATUS_VAR = { success: "var(--oc-done)", warning: "var(--sev-med)", error: "var(--sev-high)", info: "var(--faint)" };
 const AUDIT_KIND_LABEL = { connection_established: "Connection established", settings_changed: "Settings changed", resync: "Re-sync", sync_completed: "Sync completed", sync_failed: "Sync failed" };
@@ -126,6 +128,44 @@ async function loadOverview() {
   const [ovRes, evRes] = await Promise.all([fetch("/api/overview"), fetch("/api/events?limit=100")]);
   if (ovRes.ok) OVERVIEW = await ovRes.json();
   if (evRes.ok) EVENTS = await evRes.json();
+}
+
+async function loadUsers() {
+  const res = await fetch("/api/users");
+  if (res.ok) USERS = await res.json();
+}
+
+async function openUser(email) {
+  state.view = "user-detail";
+  state.selUserEmail = email;
+  USER_DETAIL = null;
+  render();
+  const res = await fetch(`/api/users/${encodeURIComponent(email)}`);
+  if (res.ok) USER_DETAIL = await res.json();
+  render();
+}
+
+function renderUsersTable() {
+  const rows = USERS.map(u => `
+    <button data-act="open-user" data-email="${escapeHtml(u.email)}" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;width:100%;text-align:left;padding:12px 0;border-top:1px solid var(--border-soft);font-size:13px">
+      <span style="font-weight:500">${escapeHtml(u.email)}</span>
+      <span style="color:var(--muted)">${escapeHtml(String(u.created_at || "").slice(0, 10))}</span>
+      <span style="color:var(--muted)">${u.connection_count} connection${u.connection_count === 1 ? "" : "s"}</span>
+      <span style="color:var(--faint)">${u.last_activity ? relTimeLabel(u.last_activity) : "no activity"}</span>
+    </button>`).join("");
+  return `
+  <div class="section-title">Users<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${USERS.length}</span></div>
+  <div class="panel">
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;padding:10px 0;font-size:11px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.03em">
+      <span>Email</span><span>Signed up</span><span>Connections</span><span>Last activity</span>
+    </div>
+    ${rows || `<div class="empty-note">No users yet.</div>`}
+  </div>`;
+}
+
+function renderUserDetail() {
+  if (!USER_DETAIL) return `<div class="empty-note">Loading…</div>`;
+  return `<div class="empty-note">User detail rendering lands in Task 9/10.</div>`;
 }
 
 function renderOverview() {
@@ -303,12 +343,14 @@ function renderLoginShell() {
 function renderMainContent() {
   switch (state.view) {
     case "overview": return renderOverview();
+    case "users": return renderUsersTable();
+    case "user-detail": return renderUserDetail();
     default: return "";
   }
 }
 
 function renderTopbar() {
-  const tabs = [["overview", "Overview"]];
+  const tabs = [["overview", "Overview"], ["users", "Users"]];
   return `
   <div class="topbar">
     <span class="topbar-brand">Bug Radar Admin</span>
@@ -338,7 +380,8 @@ document.addEventListener("click", e => {
   else if (act === "otp-verify") verifyLoginOtp();
   else if (act === "otp-resend") submitLoginEmail({ preventDefault(){} });
   else if (act === "logout") logout();
-  else if (act === "nav") { state.view = el.dataset.view; render(); }
+  else if (act === "nav") { state.view = el.dataset.view; if (el.dataset.view === "users" && !USERS.length) loadUsers(); render(); }
+  else if (act === "open-user") { openUser(el.dataset.email); }
 });
 
 document.addEventListener("input", e => {
@@ -382,7 +425,7 @@ async function logout() {
 async function init() {
   document.documentElement.setAttribute("data-theme", getTheme());
   const authed = await checkAuth();
-  if (authed) await loadOverview();
+  if (authed) { await loadOverview(); await loadUsers(); }
   render();
 }
 init();
