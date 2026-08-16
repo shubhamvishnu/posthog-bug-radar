@@ -1,6 +1,386 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>Bug Radar Admin</title>
-<body>
-  <p>Bug Radar Admin — scaffold placeholder, replaced in Task 7.</p>
-</body>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{font-family:'Inter',system-ui,sans-serif;-webkit-font-smoothing:antialiased;letter-spacing:-.006em;background:var(--bg);color:var(--text);font-size:14px}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+a{color:var(--accent);text-decoration:none}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--scroll);border-radius:8px;border:3px solid transparent;background-clip:padding-box}
+
+:root{
+--bg:#ffffff;--bg-sub:#f7f6f4;--bg-elev:#ffffff;--bg-hover:#f3f2ef;
+--border:#eceae5;--border-soft:#f1efeb;--border-str:#ddd9d2;--scroll:#d9d6cf;
+--text:#1a1712;--muted:#6b6860;--faint:#9c988e;
+--accent:#e5482b;--accent-fg:#ffffff;
+--sev-high:#e0442e;--sev-med:#bd7a17;
+--oc-done:#2f9e6b;
+--shadow:0 1px 2px rgba(20,16,10,.05),0 6px 18px rgba(20,16,10,.045);
+--panel-grad:linear-gradient(150deg,#d5e6ff 0%,#ffe6d5 46%,#ffe1ce 62%,#d9f2e7 100%);
+}
+html[data-theme="dark"]{
+--bg:#0c0d10;--bg-sub:#101116;--bg-elev:#15161b;--bg-hover:#16181d;
+--border:#212228;--border-soft:#1a1b20;--border-str:#2d2f37;--scroll:#2a2c33;
+--text:#eef0f3;--muted:#989ca4;--faint:#63676f;
+--accent:#ff6a48;--accent-fg:#0c0d10;
+--sev-high:#ff5c52;--sev-med:#e0a13c;
+--oc-done:#3fce8f;
+--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.3);
+--panel-grad:linear-gradient(150deg,#12233b 0%,#2a1a12 50%,#122a20 100%);
+}
+@keyframes fade-up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+/* ---- login (ported from worker/public/index.html) ---- */
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--panel-grad)}
+.login-card{width:100%;max-width:380px;background:var(--bg-elev);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:32px;animation:fade-up .3s ease both}
+.login-brand{display:flex;align-items:center;gap:9px;margin-bottom:22px;font-weight:600;font-size:15px}
+.login-title{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0}
+.login-subtitle{font-size:13.5px;color:var(--muted);margin:6px 0 20px}
+.login-label{display:block;font-size:12.5px;font-weight:500;color:var(--muted);margin-bottom:7px}
+.login-field{display:flex;align-items:center;gap:9px;height:44px;padding:0 13px;border-radius:11px;background:var(--bg-sub);border:1px solid var(--border-str)}
+.login-field input{flex:1;min-width:0;border:none;background:none;outline:none;color:var(--text);font-size:14px;height:100%}
+.login-field.err{border-color:var(--accent)}
+.login-error{display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--accent);font-size:12.5px}
+.login-primary-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:44px;margin-top:16px;border-radius:11px;background:var(--accent);color:var(--accent-fg);font-size:14px;font-weight:600}
+.login-primary-btn.disabled{opacity:.45;pointer-events:none}
+.otp-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-bottom:18px}
+.otp-cells{display:flex;gap:8px;margin:18px 0 4px}
+.otp-cell{width:44px;height:52px;text-align:center;font-size:21px;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--text);background:var(--bg-sub);border:1px solid var(--border-str);border-radius:11px;outline:none}
+.otp-cell.filled{border-color:var(--accent)}
+.otp-cell.err{border-color:var(--accent)}
+.otp-verify-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:44px;margin-top:20px;border-radius:11px;background:var(--accent);color:var(--accent-fg);font-size:14px;font-weight:600}
+.otp-verify-btn.disabled{opacity:.45;pointer-events:none}
+.otp-resend-row{text-align:center;margin-top:16px;font-size:13px;color:var(--muted)}
+.otp-resend-row button{color:var(--accent);font-weight:500}
+.spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---- app shell ---- */
+.app{min-height:100vh}
+.topbar{display:flex;align-items:center;gap:18px;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--bg-elev)}
+.topbar-brand{font-weight:700;font-size:15px;letter-spacing:-.01em}
+.topbar-nav{display:flex;gap:4px;margin-left:12px}
+.topbar-nav button{padding:7px 13px;border-radius:8px;font-size:13px;font-weight:500;color:var(--muted)}
+.topbar-nav button.active{color:var(--text);background:var(--bg-active,var(--bg-sub))}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted)}
+.main{max-width:1080px;margin:0 auto;padding:28px 24px 60px}
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px}
+.stat-card{border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);padding:18px}
+.stat-card .n{font-size:26px;font-weight:700;letter-spacing:-.02em}
+.stat-card .lbl{font-size:12px;color:var(--muted);margin-top:4px}
+.section-title{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.02em;text-transform:uppercase;margin:0 0 12px}
+.panel{border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);padding:6px 18px}
+.empty-note{color:var(--faint);font-size:13px;padding:16px 2px}
+</style>
+<div id="app"></div>
+<script>
+function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+function getTheme() { return localStorage.getItem("bra_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }
+
+const AUTH = { email: null };
+const loginState = { step: "email", email: "", sending: false, emailError: "", otp: ["", "", "", "", "", ""], otpError: "", verifying: false, resendIn: 0 };
+const state = { view: "overview" };
+
+let OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {} };
+let EVENTS = [];
+
+const AUDIT_STATUS_VAR = { success: "var(--oc-done)", warning: "var(--sev-med)", error: "var(--sev-high)", info: "var(--faint)" };
+const AUDIT_KIND_LABEL = { connection_established: "Connection established", settings_changed: "Settings changed", resync: "Re-sync", sync_completed: "Sync completed", sync_failed: "Sync failed" };
+
+function relTimeLabel(iso) {
+  const ts = iso.includes("T") ? iso : iso.replace(" ", "T") + "Z";
+  const mins = Math.max(0, Math.round((Date.now() - new Date(ts).getTime()) / 60000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
+function auditRowHtml(ev, opts) {
+  opts = opts || {};
+  return `
+  <div style="display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-top:1px solid var(--border-soft)">
+    <span style="width:8px;height:8px;border-radius:50%;flex:none;margin-top:5px;background:${AUDIT_STATUS_VAR[ev.status] || "var(--faint)"}"></span>
+    <div style="min-width:0;flex:1">
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <span style="font-size:13px;font-weight:600">${escapeHtml(ev.title || AUDIT_KIND_LABEL[ev.kind] || ev.kind)}</span>
+        ${opts.showOwner && ev.owner_email ? `<button data-act="open-user" data-email="${escapeHtml(ev.owner_email)}" style="font-size:11.5px;color:var(--accent);font-weight:500">${escapeHtml(ev.owner_email)}</button>` : ""}
+        ${opts.showOwner && ev.project_name ? `<span style="font-size:11.5px;color:var(--faint)">${escapeHtml(ev.project_name)}</span>` : ""}
+        <span style="font-size:11.5px;color:var(--faint)">${escapeHtml(ev.trigger_label || "")}</span>
+      </div>
+      ${ev.detail ? `<div style="font-size:12px;color:var(--muted);line-height:1.45;margin-top:2px">${escapeHtml(ev.detail)}</div>` : ""}
+    </div>
+    <span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--faint);flex:none;white-space:nowrap;margin-top:1px">${escapeHtml(relTimeLabel(ev.created_at))}</span>
+  </div>`;
+}
+
+async function loadOverview() {
+  const [ovRes, evRes] = await Promise.all([fetch("/api/overview"), fetch("/api/events?limit=100")]);
+  if (ovRes.ok) OVERVIEW = await ovRes.json();
+  if (evRes.ok) EVENTS = await evRes.json();
+}
+
+function renderOverview() {
+  const statusEntries = Object.entries(OVERVIEW.connectionsByStatus || {});
+  const statusLabel = statusEntries.length ? statusEntries.map(([s, n]) => `${n} ${s}`).join(" · ") : "no connections yet";
+  return `
+  <div class="stat-row">
+    <div class="stat-card"><div class="n">${OVERVIEW.userCount}</div><div class="lbl">Users</div></div>
+    <div class="stat-card"><div class="n">${OVERVIEW.connectionCount}</div><div class="lbl">Connections</div></div>
+    <div class="stat-card"><div class="n">${OVERVIEW.reportCount}</div><div class="lbl">Reports</div></div>
+    <div class="stat-card"><div class="n" style="font-size:15px;font-weight:600;line-height:1.5">${escapeHtml(statusLabel)}</div><div class="lbl">By status</div></div>
+  </div>
+  <div class="section-title">Global activity</div>
+  <div class="panel">
+    ${EVENTS.length ? EVENTS.map(ev => auditRowHtml(ev, { showOwner: true })).join("") : `<div class="empty-note">No activity yet.</div>`}
+  </div>`;
+}
+
+/* ---------------- login (ported two-step flow) ---------------- */
+async function submitLoginEmail(e) {
+  e.preventDefault();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginState.email)) {
+    loginState.emailError = "Enter a valid email address.";
+    render();
+    return;
+  }
+  loginState.emailError = "";
+  loginState.sending = true;
+  render();
+  try {
+    const res = await fetch("/api/auth/request-otp", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: loginState.email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    loginState.sending = false;
+    if (!res.ok) { loginState.emailError = data.error || "Something went wrong. Try again."; render(); return; }
+    loginState.step = "otp";
+    loginState.otp = ["", "", "", "", "", ""];
+    loginState.otpError = "";
+    render();
+    startResendTimer();
+  } catch (e) {
+    loginState.sending = false;
+    loginState.emailError = "Network error. Try again.";
+    render();
+  }
+}
+
+async function verifyLoginOtp() {
+  const code = loginState.otp.join("");
+  if (code.length !== 6) return;
+  loginState.verifying = true;
+  render();
+  try {
+    const res = await fetch("/api/auth/verify-otp", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: loginState.email, code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    loginState.verifying = false;
+    if (!res.ok) {
+      loginState.otpError = data.error || "That code doesn't match.";
+      loginState.otp = ["", "", "", "", "", ""];
+      render();
+      return;
+    }
+    AUTH.email = data.email;
+    await loadOverview();
+    render();
+  } catch (e) {
+    loginState.verifying = false;
+    loginState.otpError = "Network error. Try again.";
+    render();
+  }
+}
+
+function backToLoginEmail() {
+  loginState.step = "email";
+  loginState.otpError = "";
+  render();
+}
+
+let resendTimer = null;
+function startResendTimer() {
+  loginState.resendIn = 30;
+  clearInterval(resendTimer);
+  resendTimer = setInterval(() => {
+    loginState.resendIn -= 1;
+    if (loginState.resendIn <= 0) { clearInterval(resendTimer); loginState.resendIn = 0; }
+    const row = document.getElementById("otpResendRow");
+    if (row) row.innerHTML = otpResendRowHtml();
+  }, 1000);
+}
+
+function otpResendRowHtml() {
+  const s = loginState;
+  return s.resendIn <= 0
+    ? `Didn't get it? <button data-act="otp-resend">Resend code</button>`
+    : `Resend code in ${s.resendIn}s`;
+}
+
+function onOtpInput(i, val) {
+  const digit = val.replace(/\D/g, "").slice(-1);
+  const otp = loginState.otp.slice();
+  otp[i] = digit;
+  loginState.otp = otp;
+  loginState.otpError = "";
+  render();
+  if (digit) {
+    const next = document.getElementById("otp-" + (i + 1));
+    if (next) next.focus();
+  }
+}
+
+function onOtpKeydown(i, e) {
+  if (e.key === "Backspace" && !loginState.otp[i] && i > 0) {
+    const prev = document.getElementById("otp-" + (i - 1));
+    if (prev) prev.focus();
+  }
+}
+
+function renderLoginEmailStep() {
+  const s = loginState;
+  return `
+  <div>
+    <div class="login-title">Bug Radar Admin</div>
+    <div class="login-subtitle">Sign in with the admin account.</div>
+    <form id="loginEmailForm">
+      <label class="login-label">Email</label>
+      <div class="login-field${s.emailError ? " err" : ""}">
+        <input id="loginEmailInput" type="email" placeholder="you@company.com" autocomplete="email" value="${escapeHtml(s.email)}"/>
+      </div>
+      ${s.emailError ? `<div class="login-error">${escapeHtml(s.emailError)}</div>` : ""}
+      <button type="submit" class="login-primary-btn${s.sending ? " disabled" : ""}">
+        ${s.sending ? `<span class="spinner"></span>` : `<span>Send login code</span>`}
+      </button>
+    </form>
+  </div>`;
+}
+
+function renderLoginOtpStep() {
+  const s = loginState;
+  const complete = s.otp.join("").length === 6;
+  return `
+  <div>
+    <button class="otp-back" data-act="otp-back">&larr; Back</button>
+    <div class="login-title">Check your inbox</div>
+    <div class="login-subtitle">We sent a 6-digit code to <b style="color:var(--text);font-weight:500">${escapeHtml(s.email)}</b>.</div>
+    <div class="otp-cells">
+      ${s.otp.map((d, i) => `<input class="otp-cell${s.otpError ? " err" : (d ? " filled" : "")}" id="otp-${i}" data-otp-index="${i}" inputmode="numeric" maxlength="1" value="${escapeHtml(d)}"/>`).join("")}
+    </div>
+    ${s.otpError ? `<div class="login-error">${escapeHtml(s.otpError)}</div>` : ""}
+    <button class="otp-verify-btn${complete ? "" : " disabled"}" data-act="otp-verify">
+      ${s.verifying ? `<span class="spinner"></span>` : `<span>Verify &amp; continue</span>`}
+    </button>
+    <div class="otp-resend-row" id="otpResendRow">${otpResendRowHtml()}</div>
+  </div>`;
+}
+
+function renderLoginShell() {
+  return `
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-brand">Bug Radar Admin</div>
+      ${loginState.step === "email" ? renderLoginEmailStep() : renderLoginOtpStep()}
+    </div>
+  </div>`;
+}
+
+/* ---------------- main render ---------------- */
+function renderMainContent() {
+  switch (state.view) {
+    case "overview": return renderOverview();
+    default: return "";
+  }
+}
+
+function renderTopbar() {
+  const tabs = [["overview", "Overview"]];
+  return `
+  <div class="topbar">
+    <span class="topbar-brand">Bug Radar Admin</span>
+    <div class="topbar-nav">${tabs.map(([v, l]) => `<button class="${state.view === v ? "active" : ""}" data-act="nav" data-view="${v}">${l}</button>`).join("")}</div>
+    <div class="topbar-right">
+      <span>${escapeHtml(AUTH.email || "")}</span>
+      <button data-act="logout" style="color:var(--muted)">Log out</button>
+    </div>
+  </div>`;
+}
+
+function render() {
+  document.documentElement.setAttribute("data-theme", getTheme());
+  const app = document.getElementById("app");
+  if (!AUTH.email) {
+    app.innerHTML = renderLoginShell();
+    return;
+  }
+  app.innerHTML = `<div class="app">${renderTopbar()}<main class="main">${renderMainContent()}</main></div>`;
+}
+
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  const act = el.dataset.act;
+  if (act === "otp-back") backToLoginEmail();
+  else if (act === "otp-verify") verifyLoginOtp();
+  else if (act === "otp-resend") submitLoginEmail({ preventDefault(){} });
+  else if (act === "logout") logout();
+  else if (act === "nav") { state.view = el.dataset.view; render(); }
+});
+
+document.addEventListener("input", e => {
+  if (e.target.dataset && e.target.dataset.otpIndex !== undefined) {
+    onOtpInput(Number(e.target.dataset.otpIndex), e.target.value);
+  }
+  if (e.target.id === "loginEmailInput") {
+    loginState.email = e.target.value;
+    loginState.emailError = "";
+  }
+});
+
+document.addEventListener("keydown", e => {
+  if (e.target.dataset && e.target.dataset.otpIndex !== undefined) {
+    onOtpKeydown(Number(e.target.dataset.otpIndex), e);
+  }
+});
+
+document.addEventListener("submit", e => {
+  if (e.target.id === "loginEmailForm") submitLoginEmail(e);
+});
+
+async function checkAuth() {
+  try {
+    const res = await fetch("/api/auth/me");
+    if (res.ok) { AUTH.email = (await res.json()).email; return true; }
+  } catch (e) {}
+  AUTH.email = null;
+  return false;
+}
+
+async function logout() {
+  try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) {}
+  AUTH.email = null;
+  loginState.step = "email";
+  loginState.email = "";
+  loginState.otp = ["", "", "", "", "", ""];
+  render();
+}
+
+async function init() {
+  document.documentElement.setAttribute("data-theme", getTheme());
+  const authed = await checkAuth();
+  if (authed) await loadOverview();
+  render();
+}
+init();
+</script>
