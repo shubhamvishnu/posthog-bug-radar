@@ -162,7 +162,7 @@ export default {
 
     if (pathname === "/api/events" && request.method === "GET") {
       if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
-      const limit = Math.min(Number(url.searchParams.get("limit")) || 100, 500);
+      const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 100, 500));
       const { results } = await env.DB.prepare(
         `SELECT ce.id, ce.connection_id, ce.kind, ce.status, ce.title, ce.detail, ce.trigger_label, ce.created_at,
                 c.owner_email, c.project_name
