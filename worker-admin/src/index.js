@@ -272,6 +272,22 @@ export default {
       });
     }
 
+    const mediaProxyMatch = pathname.match(/^\/api\/media\/(.+)$/);
+    if (mediaProxyMatch && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const key = mediaProxyMatch[1];
+      const upstream = await fetch(`${env.MAIN_WORKER_URL}/api/admin/media/${key}`, {
+        headers: { authorization: `Bearer ${env.ADMIN_MEDIA_SECRET}` },
+      });
+      if (!upstream.ok) return json({ error: "not found" }, upstream.status === 401 ? 401 : 404);
+      return new Response(upstream.body, {
+        headers: {
+          "content-type": upstream.headers.get("content-type") || "image/png",
+          "cache-control": "private, max-age=31536000, immutable",
+        },
+      });
+    }
+
     return env.ASSETS.fetch(request);
   },
 };
