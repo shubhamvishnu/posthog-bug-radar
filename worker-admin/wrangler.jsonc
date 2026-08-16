@@ -18,5 +18,11 @@
   "vars": {
     "RESEND_FROM": "Bug Radar Admin <login@revsight.io>",
     "MAIN_WORKER_URL": "https://bug-radar.shubhamvishnu.workers.dev"
-  }
+  },
+  "services": [
+    {
+      "binding": "MAIN_WORKER",
+      "service": "bug-radar"
+    }
+  ]
 }

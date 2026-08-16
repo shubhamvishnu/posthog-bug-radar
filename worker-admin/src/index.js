@@ -276,9 +276,16 @@ export default {
     if (mediaProxyMatch && request.method === "GET") {
       if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
       const key = mediaProxyMatch[1];
-      const upstream = await fetch(`${env.MAIN_WORKER_URL}/api/admin/media/${key}`, {
-        headers: { authorization: `Bearer ${env.ADMIN_MEDIA_SECRET}` },
-      });
+      // Cloudflare Workers on *.workers.dev share a zone, so a plain global
+      // fetch() from this Worker to the main Worker's public URL is blocked
+      // (error 1042: "Worker tried to fetch from another Worker on the same
+      // zone"). Use the Service Binding instead, the documented mechanism
+      // for Worker-to-Worker calls (see worker-admin/wrangler.jsonc).
+      const upstream = await env.MAIN_WORKER.fetch(
+        new Request(`${env.MAIN_WORKER_URL}/api/admin/media/${key}`, {
+          headers: { authorization: `Bearer ${env.ADMIN_MEDIA_SECRET}` },
+        })
+      );
       if (!upstream.ok) return json({ error: "not found" }, upstream.status === 401 ? 401 : 404);
       return new Response(upstream.body, {
         headers: {
