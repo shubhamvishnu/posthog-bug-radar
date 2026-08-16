@@ -149,7 +149,28 @@ export default {
 
     if (pathname === "/api/overview" && request.method === "GET") {
       if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
-      return json({ ok: true });
+      const userCount = (await env.DB.prepare("SELECT COUNT(*) as n FROM users").first()).n;
+      const connectionCount = (await env.DB.prepare("SELECT COUNT(*) as n FROM connections").first()).n;
+      const reportCount = (await env.DB.prepare("SELECT COUNT(*) as n FROM reports").first()).n;
+      const { results: statusRows } = await env.DB.prepare(
+        "SELECT status, COUNT(*) as n FROM connections GROUP BY status"
+      ).all();
+      const connectionsByStatus = {};
+      for (const row of statusRows) connectionsByStatus[row.status] = row.n;
+      return json({ userCount, connectionCount, reportCount, connectionsByStatus });
+    }
+
+    if (pathname === "/api/events" && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const limit = Math.min(Number(url.searchParams.get("limit")) || 100, 500);
+      const { results } = await env.DB.prepare(
+        `SELECT ce.id, ce.connection_id, ce.kind, ce.status, ce.title, ce.detail, ce.trigger_label, ce.created_at,
+                c.owner_email, c.project_name
+         FROM connection_events ce
+         JOIN connections c ON c.id = ce.connection_id
+         ORDER BY ce.id DESC LIMIT ?`
+      ).bind(limit).all();
+      return json(results);
     }
 
     return env.ASSETS.fetch(request);
