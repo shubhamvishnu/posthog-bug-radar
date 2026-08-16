@@ -164,9 +164,95 @@ function renderUsersTable() {
   </div>`;
 }
 
+function connChipStyle(status) {
+  const color = status === "healthy" ? "var(--oc-done)" : status === "error" ? "var(--sev-high)" : "var(--faint)";
+  return `color:${color};background:color-mix(in srgb,${color} 14%,transparent);border:1px solid color-mix(in srgb,${color} 30%,transparent)`;
+}
+
+function renderConnectionCard(conn) {
+  const connEvents = (USER_DETAIL.events || []).filter(ev => ev.connection_id === conn.id);
+  return `
+  <div class="panel" style="margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 0 8px">
+      <div style="min-width:0;flex:1">
+        <div style="font-weight:700;font-size:15.5px">${escapeHtml(conn.project_name || conn.project_id)}</div>
+        <div style="font-size:12px;color:var(--muted);font-family:'JetBrains Mono',monospace;margin-top:2px">${escapeHtml((conn.region || "").toUpperCase())} · ${escapeHtml(conn.timezone || "")}</div>
+      </div>
+      <span style="padding:4px 10px;border-radius:7px;font-size:11.5px;font-weight:600;${connChipStyle(conn.status)}">${escapeHtml(conn.status)}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:10px 0;font-size:12.5px;border-top:1px solid var(--border-soft)">
+      <span><span style="color:var(--muted)">Sync</span> ${escapeHtml(conn.sync_freq)} / ${conn.sync_max_sessions} sessions</span>
+      <span><span style="color:var(--muted)">Last synced</span> ${conn.last_synced_at ? escapeHtml(String(conn.last_synced_at)) : "never"}</span>
+      <span><span style="color:var(--muted)">Last pipeline run</span> ${conn.last_pipeline_run_at ? escapeHtml(String(conn.last_pipeline_run_at)) : "never"}</span>
+    </div>
+    ${conn.last_error ? `<div style="padding:8px 0;font-size:12.5px;color:var(--sev-high);border-top:1px solid var(--border-soft)">${escapeHtml(conn.last_error)}</div>` : ""}
+    <div style="border-top:1px solid var(--border-soft);padding-top:4px">
+      <div style="font-size:11px;font-weight:600;color:var(--faint);letter-spacing:.03em;padding:10px 0 2px">AUDIT LOG · ${connEvents.length}</div>
+      ${connEvents.length ? connEvents.map(ev => auditRowHtml(ev)).join("") : `<div class="empty-note">No activity yet.</div>`}
+    </div>
+  </div>`;
+}
+
+function renderGoalsLibrary() {
+  const goals = USER_DETAIL.goals || [];
+  const rows = goals.map(g => `
+    <div style="padding:12px 0;border-top:1px solid var(--border-soft)">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-weight:600;font-size:13px">${escapeHtml(g.purpose)}</span>
+        <span style="font-size:10.5px;font-weight:600;color:var(--faint);background:var(--bg-sub);padding:2px 7px;border-radius:6px">${g.source === "auto" ? "AUTO" : "USER"}</span>
+      </div>
+      ${g.description ? `<div style="font-size:12.5px;color:var(--muted);margin-top:4px;line-height:1.5">${escapeHtml(g.description)}</div>` : ""}
+    </div>`).join("");
+  return `
+  <div class="section-title">Goals<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${goals.length}</span></div>
+  <div class="panel">${rows || `<div class="empty-note">No goals yet.</div>`}</div>`;
+}
+
+function renderTagsLibrary() {
+  const tags = USER_DETAIL.tags || [];
+  const chip = t => `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 8px;border-radius:20px;color:${escapeHtml(t.color)};background:color-mix(in srgb,${escapeHtml(t.color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(t.color)} 28%,transparent)">${escapeHtml(t.label)}</span>`;
+  return `
+  <div class="section-title">Tags<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${tags.length}</span></div>
+  <div class="panel" style="padding:16px 18px"><div style="display:flex;flex-wrap:wrap;gap:8px">${tags.length ? tags.map(chip).join("") : `<span class="empty-note">No tags yet.</span>`}</div></div>`;
+}
+
+function renderCorrectionsTable() {
+  const corrections = USER_DETAIL.corrections || [];
+  const rows = corrections.map(c => `
+    <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 2fr;gap:12px;padding:10px 0;border-top:1px solid var(--border-soft);font-size:12.5px">
+      <span style="font-weight:500">${escapeHtml(c.task_title || c.session_id)}</span>
+      <span style="color:var(--muted)">${escapeHtml(c.field)}</span>
+      <span style="color:var(--faint)">${escapeHtml(c.from_value ?? "")} &rarr; ${escapeHtml(c.to_value ?? "")}</span>
+      <span style="color:var(--faint)">${escapeHtml(String(c.created_at || "").slice(0, 10))}</span>
+      <span style="color:var(--muted)">${escapeHtml(c.reason)}</span>
+    </div>`).join("");
+  return `
+  <div class="section-title">Corrections<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${corrections.length}</span></div>
+  <div class="panel">
+    ${corrections.length ? `<div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 2fr;gap:12px;padding:10px 0;font-size:11px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.03em">
+      <span>Task</span><span>Field</span><span>Change</span><span>Date</span><span>Reason</span>
+    </div>${rows}` : `<div class="empty-note">No corrections yet.</div>`}
+  </div>`;
+}
+
+function renderLatestReportSection() {
+  return `<div class="section-title">Latest report</div><div class="panel"><div class="empty-note">Report rendering lands in Task 10.</div></div>`;
+}
+
 function renderUserDetail() {
   if (!USER_DETAIL) return `<div class="empty-note">Loading…</div>`;
-  return `<div class="empty-note">User detail rendering lands in Task 9/10.</div>`;
+  const u = USER_DETAIL;
+  const connections = u.connections || [];
+  return `
+  <button data-act="nav" data-view="users" style="font-size:13px;color:var(--muted);margin-bottom:14px;display:inline-block">&larr; Users</button>
+  <div style="font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:2px">${escapeHtml(u.user.email)}</div>
+  <div style="font-size:12.5px;color:var(--muted);margin-bottom:22px">Signed up ${escapeHtml(String(u.user.created_at || "").slice(0, 10))}</div>
+  <div class="section-title">Connections<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${connections.length}</span></div>
+  ${connections.length ? connections.map(renderConnectionCard).join("") : `<div class="panel"><div class="empty-note">No connections yet.</div></div>`}
+  <div style="margin-top:24px">${renderLatestReportSection()}</div>
+  <div style="margin-top:24px">${renderGoalsLibrary()}</div>
+  <div style="margin-top:24px">${renderTagsLibrary()}</div>
+  <div style="margin-top:24px">${renderCorrectionsTable()}</div>`;
 }
 
 function renderOverview() {
