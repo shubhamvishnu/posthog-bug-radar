@@ -238,6 +238,9 @@ function onOtpInput(i, val) {
   if (digit) {
     const next = document.getElementById("otp-" + (i + 1));
     if (next) next.focus();
+  } else {
+    const cur = document.getElementById("otp-" + i);
+    if (cur) cur.focus();
   }
 }
 
