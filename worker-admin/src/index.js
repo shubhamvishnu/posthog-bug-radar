@@ -201,6 +201,77 @@ export default {
       return json(enriched);
     }
 
+    const userDetailMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
+    if (userDetailMatch && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const targetEmail = decodeURIComponent(userDetailMatch[1]).trim().toLowerCase();
+      const user = await env.DB.prepare("SELECT id, email, created_at FROM users WHERE email = ?").bind(targetEmail).first();
+      if (!user) return json({ error: "not found" }, 404);
+
+      const { results: connections } = await env.DB.prepare(
+        `SELECT id, region, project_id, project_name, timezone, identity_email_prop, identity_name_prop, identity_role_prop,
+                status, last_error, last_synced_at, sync_freq, sync_max_sessions, last_pipeline_run_at, created_at
+         FROM connections WHERE owner_email = ? ORDER BY id DESC`
+      ).bind(targetEmail).all();
+
+      const latestReportRow = await env.DB.prepare(
+        "SELECT connection_id, generated_at, macro_themes, micro_findings FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1"
+      ).bind(targetEmail).first();
+      const latestReport = latestReportRow ? {
+        connection_id: latestReportRow.connection_id,
+        generated_at: latestReportRow.generated_at,
+        macro_themes: JSON.parse(latestReportRow.macro_themes),
+        micro_findings: JSON.parse(latestReportRow.micro_findings),
+      } : null;
+
+      const { results: reportHistoryRaw } = await env.DB.prepare(
+        "SELECT id, connection_id, generated_at, created_at, micro_findings FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 10"
+      ).bind(targetEmail).all();
+      const reportHistory = reportHistoryRaw.map(r => ({
+        id: r.id,
+        connection_id: r.connection_id,
+        generated_at: r.generated_at,
+        created_at: r.created_at,
+        task_count: JSON.parse(r.micro_findings).reduce((n, f) => n + (f.tasks || []).length, 0),
+      }));
+
+      const { results: goalsRaw } = await env.DB.prepare(
+        "SELECT id, purpose, description, tags, source, created_at FROM goals WHERE owner_email = ? ORDER BY id DESC"
+      ).bind(targetEmail).all();
+      const goals = goalsRaw.map(g => ({ ...g, tags: JSON.parse(g.tags || "[]") }));
+
+      const { results: tags } = await env.DB.prepare(
+        "SELECT id, label, color, source, created_at FROM tags WHERE owner_email = ? ORDER BY id DESC"
+      ).bind(targetEmail).all();
+
+      const { results: corrections } = await env.DB.prepare(
+        `SELECT id, session_id, task_index, task_title, field, from_value, to_value, reason, connection_id, created_at
+         FROM corrections WHERE owner_email = ? ORDER BY id DESC`
+      ).bind(targetEmail).all();
+
+      const connectionIds = connections.map(c => c.id);
+      let events = [];
+      if (connectionIds.length) {
+        const placeholders = connectionIds.map(() => "?").join(",");
+        const { results } = await env.DB.prepare(
+          `SELECT id, connection_id, kind, status, title, detail, trigger_label, created_at
+           FROM connection_events WHERE connection_id IN (${placeholders}) ORDER BY id DESC LIMIT 200`
+        ).bind(...connectionIds).all();
+        events = results;
+      }
+
+      return json({
+        user: { email: user.email, created_at: user.created_at },
+        connections,
+        latest_report: latestReport,
+        report_history: reportHistory,
+        goals,
+        tags,
+        corrections,
+        events,
+      });
+    }
+
     return env.ASSETS.fetch(request);
   },
 };
