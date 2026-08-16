@@ -173,6 +173,34 @@ export default {
       return json(results);
     }
 
+    if (pathname === "/api/users" && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const { results: users } = await env.DB.prepare("SELECT id, email, created_at FROM users ORDER BY id").all();
+      const { results: connCounts } = await env.DB.prepare(
+        "SELECT owner_email, COUNT(*) as n FROM connections GROUP BY owner_email"
+      ).all();
+      const connCountMap = {};
+      for (const row of connCounts) connCountMap[row.owner_email] = row.n;
+      const { results: eventActivity } = await env.DB.prepare(
+        `SELECT c.owner_email as owner_email, MAX(ce.created_at) as last_event
+         FROM connection_events ce JOIN connections c ON c.id = ce.connection_id
+         GROUP BY c.owner_email`
+      ).all();
+      const eventActivityMap = {};
+      for (const row of eventActivity) eventActivityMap[row.owner_email] = row.last_event;
+      const { results: reportActivity } = await env.DB.prepare(
+        "SELECT owner_email, MAX(created_at) as last_report FROM reports GROUP BY owner_email"
+      ).all();
+      const reportActivityMap = {};
+      for (const row of reportActivity) reportActivityMap[row.owner_email] = row.last_report;
+      const enriched = users.map(u => ({
+        ...u,
+        connection_count: connCountMap[u.email] || 0,
+        last_activity: eventActivityMap[u.email] || reportActivityMap[u.email] || null,
+      }));
+      return json(enriched);
+    }
+
     return env.ASSETS.fetch(request);
   },
 };
