@@ -491,9 +491,11 @@ let CONNECTIONS = [];
 let KNOWLEDGE = { domain: "", description: "" };
 let GOALS = [];
 let TAGS = [];
+let SLACK_STATUS = { connected: false };
+let SLACK_RULES = [];
 
 async function loadData() {
-  const [reportRes, promptsRes, correctionsRes, connRes, knowRes, goalsRes, tagsRes] = await Promise.all([
+  const [reportRes, promptsRes, correctionsRes, connRes, knowRes, goalsRes, tagsRes, slackStatusRes, slackRulesRes] = await Promise.all([
     fetch("/api/report"),
     fetch("/api/prompts"),
     fetch("/api/corrections"),
@@ -501,6 +503,8 @@ async function loadData() {
     fetch("/api/company-knowledge"),
     fetch("/api/goals"),
     fetch("/api/tags"),
+    fetch("/api/slack/status"),
+    fetch("/api/slack/rules"),
   ]);
   if (reportRes.ok) REPORT = await reportRes.json();
   if (promptsRes.ok) PROMPTS = await promptsRes.json();
@@ -516,6 +520,8 @@ async function loadData() {
   if (knowRes.ok) { KNOWLEDGE = await knowRes.json(); state.knowledgeUrl = KNOWLEDGE.domain || ""; state.knowledgeDesc = KNOWLEDGE.description || ""; }
   if (goalsRes.ok) GOALS = await goalsRes.json();
   if (tagsRes.ok) TAGS = await tagsRes.json();
+  if (slackStatusRes.ok) SLACK_STATUS = await slackStatusRes.json();
+  if (slackRulesRes.ok) SLACK_RULES = await slackRulesRes.json();
 }
 
 /* ---------------- state ---------------- */
@@ -1922,6 +1928,58 @@ function renderTagsSection() {
   </div>`;
 }
 
+const SLACK_MARK_SVG = (px) => `<svg width="${px}" height="${px}" viewBox="0 0 122 122" fill="none"><path d="M25.8 77c0 7.1-5.8 12.9-12.9 12.9S0 84.1 0 77s5.8-12.9 12.9-12.9h12.9V77z" fill="#E01E5A"/><path d="M32.3 77c0-7.1 5.8-12.9 12.9-12.9S58.1 69.9 58.1 77v32.3c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V77z" fill="#E01E5A"/><path d="M45.2 25.8c-7.1 0-12.9-5.8-12.9-12.9S38.1 0 45.2 0s12.9 5.8 12.9 12.9v12.9H45.2z" fill="#36C5F0"/><path d="M45.2 32.3c7.1 0 12.9 5.8 12.9 12.9S52.3 58.1 45.2 58.1H12.9C5.8 58.1 0 52.3 0 45.2s5.8-12.9 12.9-12.9h32.3z" fill="#36C5F0"/><path d="M96.2 45.2c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9-5.8 12.9-12.9 12.9H96.2V45.2z" fill="#2EB67D"/><path d="M89.7 45.2c0 7.1-5.8 12.9-12.9 12.9S63.9 52.3 63.9 45.2V12.9C63.9 5.8 69.7 0 76.8 0s12.9 5.8 12.9 12.9v32.3z" fill="#2EB67D"/><path d="M76.8 96.2c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V96.2h12.9z" fill="#ECB22E"/><path d="M76.8 89.7c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H76.8z" fill="#ECB22E"/></svg>`;
+
+function renderSlackNotConnected() {
+  const scopes = [
+    { title: "Post messages as Singularity", detail: "So a confirmed bug can show up in the channel you pick, formatted and ready to act on." },
+    { title: "See your channel list", detail: "So you can search and choose which channel each rule posts to." },
+    { title: "Look up who’s in a channel", detail: "So we can DM the right person when a rule turns on “also DM the code owner.”" },
+  ];
+  return `
+  <div style="max-width:600px">
+    <div style="display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:24px">
+      <span style="width:58px;height:58px;border-radius:16px;background:var(--bg-sub);border:1px solid var(--border);display:grid;place-items:center;margin-bottom:15px;box-shadow:var(--shadow)">${SLACK_MARK_SVG(30)}</span>
+      <h2 style="font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 8px">Route confirmed bugs straight into Slack</h2>
+      <p style="font-size:13.5px;line-height:1.6;color:var(--muted);margin:0;max-width:46ch">Connect a workspace and confirmed bugs get posted to the Slack channels you choose &mdash; the moment they're confirmed, instead of sitting in a dashboard waiting to be checked.</p>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)">
+      <div style="padding:15px 20px;border-bottom:1px solid var(--border-soft)"><div style="font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--faint);text-transform:uppercase">What you're granting</div></div>
+      ${scopes.map(s => `<div style="display:flex;align-items:flex-start;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border-soft)">
+        <span style="width:30px;height:30px;flex:none;border-radius:9px;background:color-mix(in srgb,var(--accent) 11%,transparent);color:var(--accent);display:grid;place-items:center;margin-top:1px">${ICON_SHIELD}</span>
+        <div style="min-width:0"><div style="font-size:13.5px;font-weight:600">${escapeHtml(s.title)}</div><div style="font-size:12.5px;color:var(--muted);line-height:1.5;margin-top:2px">${escapeHtml(s.detail)}</div></div>
+      </div>`).join("")}
+      <div style="display:flex;align-items:center;gap:11px;padding:14px 20px;background:color-mix(in srgb,var(--oc-done) 7%,transparent)">
+        ${ICON_CHECK_CIRCLE}
+        <span style="font-size:12.5px;color:var(--text);line-height:1.45"><b style="font-weight:600">Singularity only ever posts.</b> <span style="color:var(--muted)">It never reads your messages or channel history &mdash; not now, not ever.</span></span>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-top:22px">
+      <button data-act="slack-connect" style="display:inline-flex;align-items:center;gap:11px;height:48px;padding:0 22px 0 18px;border-radius:11px;background:#0a0a0a;color:#fff;font-size:16px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.28)">${SLACK_MARK_SVG(22)}Add to Slack</button>
+      <span style="font-size:11.5px;color:var(--faint)">One Slack workspace per account &middot; takes about 20 seconds</span>
+    </div>
+  </div>`;
+}
+
+function renderSlackConnecting() {
+  return `
+  <div style="max-width:440px;border:1px solid var(--border);border-radius:16px;padding:30px 28px;box-shadow:var(--shadow);text-align:center">
+    <span style="width:52px;height:52px;border-radius:14px;background:var(--bg-sub);border:1px solid var(--border);display:inline-grid;place-items:center;margin-bottom:16px">${SLACK_MARK_SVG(26)}</span>
+    <div style="font-size:16px;font-weight:600;margin-bottom:4px">Connecting to Slack&hellip;</div>
+    <div style="font-size:12.5px;color:var(--muted)">Authorizing in your Slack workspace &mdash; hang tight.</div>
+  </div>`;
+}
+
+function renderSlackTab() {
+  if (state.slackConnecting) return renderSlackConnecting();
+  if (!SLACK_STATUS.connected && SLACK_STATUS.status !== "disconnected") return renderSlackNotConnected();
+  return renderSlackConnectedShell();
+}
+
+function renderSlackConnectedShell() {
+  return `<div>Connected view lands in Task 8.</div>`;
+}
+
 function renderKnowledgeTab() {
   return `
   <div class="section-label" style="margin-bottom:4px">COMPANY KNOWLEDGE</div>
@@ -1982,11 +2040,11 @@ function renderPipelineTab() {
 function renderSettings() {
   const tab = state.settingsTab;
   const tabBtn = (key, label) => `<button class="settings-tab-btn${tab === key ? " active" : ""}" data-act="settings-tab" data-tab="${key}">${label}</button>`;
-  const body = tab === "connections" ? renderConnectionsTab() : tab === "knowledge" ? renderKnowledgeTab() : tab === "goals" ? renderGoalsTab() : renderPipelineTab();
+  const body = tab === "connections" ? renderConnectionsTab() : tab === "knowledge" ? renderKnowledgeTab() : tab === "goals" ? renderGoalsTab() : tab === "slack" ? renderSlackTab() : renderPipelineTab();
   return `
   <div class="pageheader"><span class="title">Settings</span></div>
   <div class="content"><div class="contentpad" style="max-width:900px">
-    <div class="settings-tabs">${tabBtn("connections", "Connections")}${tabBtn("knowledge", "Company knowledge")}${tabBtn("pipeline", "Pipeline &amp; model")}${tabBtn("goals", "Goals &amp; tags")}</div>
+    <div class="settings-tabs">${tabBtn("connections", "Connections")}${tabBtn("knowledge", "Company knowledge")}${tabBtn("pipeline", "Pipeline &amp; model")}${tabBtn("goals", "Goals &amp; tags")}${tabBtn("slack", "Slack")}</div>
     ${body}
   </div></div>`;
 }
@@ -2146,6 +2204,7 @@ document.addEventListener("click", e => {
   else if (act === "outreach-send") { state.outreachOpen = false; flash("Sending isn't wired to a channel yet, copy this message manually for now."); render(); }
   else if (act === "session-tab") { state.sessionTab = el.dataset.tab; render(); }
   else if (act === "settings-tab") { state.settingsTab = el.dataset.tab; render(); }
+  else if (act === "slack-connect") { window.location.href = "/api/slack/oauth/start"; }
   else if (act === "conn-start") { connStart(); }
   else if (act === "conn-cancel") { connCancel(); }
   else if (act === "conn-run") { connRun(); }
@@ -2521,6 +2580,10 @@ document.addEventListener("keydown", e => {
 });
 
 async function init() {
+  if (new URLSearchParams(window.location.search).get("slack") === "connected") {
+    state.settingsTab = "slack";
+    window.history.replaceState({}, "", window.location.pathname);
+  }
   document.documentElement.setAttribute("data-theme", getTheme());
   const authed = await checkAuth();
   if (authed) await loadData();
