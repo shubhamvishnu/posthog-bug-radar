@@ -113,3 +113,39 @@ CREATE TABLE IF NOT EXISTS connection_events (
   trigger_label TEXT NOT NULL,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS slack_connections (
+  owner_email TEXT PRIMARY KEY,
+  team_id TEXT NOT NULL,
+  team_name TEXT NOT NULL,
+  encrypted_bot_token TEXT,
+  iv TEXT,
+  connected_by_email TEXT,
+  status TEXT NOT NULL DEFAULT 'connected',
+  connected_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS slack_oauth_state (
+  state TEXT PRIMARY KEY,
+  owner_email TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS slack_rules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  cond_outcome TEXT NOT NULL DEFAULT '[]',
+  cond_severity TEXT NOT NULL DEFAULT '[]',
+  cond_real_bug TEXT NOT NULL DEFAULT 'either',
+  cond_reachable TEXT NOT NULL DEFAULT 'either',
+  cond_goal_ids TEXT NOT NULL DEFAULT '[]',
+  cond_tag_ids TEXT NOT NULL DEFAULT '[]',
+  channel_id TEXT NOT NULL,
+  channel_name TEXT NOT NULL,
+  dm_owner INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
