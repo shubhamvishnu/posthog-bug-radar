@@ -1034,6 +1034,80 @@ export default {
       return json(results);
     }
 
+    if (pathname === "/api/slack/status" && request.method === "GET") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const row = await env.DB.prepare(
+        "SELECT team_name, status, connected_by_email, connected_at FROM slack_connections WHERE owner_email = ?"
+      ).bind(email).first();
+      if (!row) return json({ connected: false });
+      return json({
+        connected: row.status === "connected",
+        status: row.status,
+        team_name: row.team_name,
+        connected_by_email: row.connected_by_email,
+        connected_at: row.connected_at,
+      });
+    }
+
+    if (pathname === "/api/slack/oauth/start" && request.method === "GET") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      if (!env.SLACK_CLIENT_ID) return json({ error: "Slack app not configured" }, 500);
+      const state = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO slack_oauth_state (state, owner_email) VALUES (?, ?)").bind(state, email).run();
+      const redirectUri = `${url.origin}/api/slack/oauth/callback`;
+      const scopes = "chat:write,chat:write.public,channels:read,users:read";
+      const authUrl = `https://slack.com/oauth/v2/authorize?client_id=${encodeURIComponent(env.SLACK_CLIENT_ID)}&scope=${encodeURIComponent(scopes)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
+      return Response.redirect(authUrl, 302);
+    }
+
+    if (pathname === "/api/slack/oauth/callback" && request.method === "GET") {
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
+      const appOrigin = url.origin;
+      if (!code || !state) {
+        return new Response("Missing code or state.", { status: 400 });
+      }
+      const stateRow = await env.DB.prepare("SELECT owner_email, created_at FROM slack_oauth_state WHERE state = ?").bind(state).first();
+      await env.DB.prepare("DELETE FROM slack_oauth_state WHERE state = ?").bind(state).run();
+      if (!stateRow) {
+        return new Response("This connection link has expired or was already used. Go back and click Add to Slack again.", { status: 400 });
+      }
+      const ageMs = Date.now() - sqliteTimeToMs(stateRow.created_at);
+      if (Number.isNaN(ageMs) || ageMs > 10 * 60 * 1000) {
+        return new Response("This connection link has expired. Go back and click Add to Slack again.", { status: 400 });
+      }
+      const ownerEmail = stateRow.owner_email;
+      if (!env.SLACK_CLIENT_ID || !env.SLACK_CLIENT_SECRET) {
+        return new Response("Slack app not configured.", { status: 500 });
+      }
+      const redirectUri = `${appOrigin}/api/slack/oauth/callback`;
+      const tokenRes = await fetch("https://slack.com/api/oauth.v2.access", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: env.SLACK_CLIENT_ID,
+          client_secret: env.SLACK_CLIENT_SECRET,
+          code,
+          redirect_uri: redirectUri,
+        }),
+      });
+      const tokenData = await tokenRes.json();
+      if (!tokenData.ok) {
+        return new Response(`Slack couldn't complete the connection: ${tokenData.error || "unknown error"}.`, { status: 400 });
+      }
+      const { ciphertext, iv } = await encryptSecret(env, tokenData.access_token);
+      await env.DB.prepare(
+        `INSERT INTO slack_connections (owner_email, team_id, team_name, encrypted_bot_token, iv, connected_by_email, status, connected_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'connected', datetime('now'), datetime('now'))
+         ON CONFLICT(owner_email) DO UPDATE SET
+           team_id=excluded.team_id, team_name=excluded.team_name, encrypted_bot_token=excluded.encrypted_bot_token,
+           iv=excluded.iv, connected_by_email=excluded.connected_by_email, status='connected', updated_at=datetime('now')`
+      ).bind(ownerEmail, tokenData.team.id, tokenData.team.name, ciphertext, iv, ownerEmail).run();
+      return Response.redirect(`${appOrigin}/?slack=connected`, 302);
+    }
+
     if (pathname === "/api/tags" && request.method === "POST") {
       const email = await getSessionEmail(request, env);
       if (!email) return json({ error: "not authenticated" }, 401);
