@@ -465,6 +465,9 @@ html[data-theme="dark"] .login-panel-wash{opacity:.5}
   .insight-grid,.macro-grid{grid-template-columns:1fr}
   .sess-counts{display:none}
 }
+.modal-overlay{position:fixed;inset:0;z-index:60;background:rgba(10,8,6,.44);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:24px}
+.modal-overlay.top{align-items:flex-start;padding-top:4vh;overflow-y:auto}
+.modal-card{background:var(--bg-elev);border:1px solid var(--border);border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.4)}
 </style>
 
 <div id="app"></div>
@@ -1976,8 +1979,113 @@ function renderSlackTab() {
   return renderSlackConnectedShell();
 }
 
+function slackRuleChips(rule) {
+  const neutral = `display:inline-flex;align-items:center;font-size:11.5px;font-weight:500;padding:3px 9px;border-radius:7px;background:var(--bg-sub);border:1px solid var(--border);color:var(--muted)`;
+  const chips = [];
+  if (rule.cond.severity.length) chips.push(`<span style="${neutral}">Severity: ${escapeHtml(rule.cond.severity.join(" or "))}</span>`);
+  if (rule.cond.outcome.length) chips.push(`<span style="${neutral}">Outcome: ${escapeHtml(rule.cond.outcome.join(" or "))}</span>`);
+  if (rule.cond.realBug !== "either") chips.push(`<span style="${neutral}">Real bug: ${rule.cond.realBug === "yes" ? "Yes" : "No"}</span>`);
+  if (rule.cond.reachable !== "either") chips.push(`<span style="${neutral}">Reachable: ${rule.cond.reachable === "yes" ? "Yes" : "No"}</span>`);
+  rule.cond.goalIds.forEach(id => {
+    const g = GOALS.find(x => x.id === id);
+    chips.push(`<span style="${neutral}">Goal: ${escapeHtml(g ? g.purpose : "deleted goal")}</span>`);
+  });
+  rule.cond.tagIds.forEach(id => {
+    const t = TAGS.find(x => x.id === id);
+    const color = t ? t.color : "#64748b";
+    const label = t ? t.label : "deleted tag";
+    chips.push(`<span style="display:inline-flex;align-items:center;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:7px;color:${escapeHtml(color)};background:color-mix(in srgb,${escapeHtml(color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(color)} 28%,transparent)">${escapeHtml(label)}</span>`);
+  });
+  return chips.join("");
+}
+
+function renderSlackRuleCard(rule) {
+  const disc = SLACK_STATUS.status === "disconnected";
+  const inactive = disc || !rule.enabled;
+  const on = rule.enabled && !disc;
+  const chips = slackRuleChips(rule);
+  return `
+  <div style="border:1px solid ${rule.orphaned ? "color-mix(in srgb,var(--sev-high) 34%,transparent)" : "var(--border)"};border-radius:13px;padding:15px 17px;background:var(--bg-elev);box-shadow:var(--shadow);${inactive ? "opacity:.66" : ""}">
+    <div style="display:flex;align-items:flex-start;gap:12px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:9px">
+          <span style="font-weight:600;font-size:14.5px;${inactive ? "color:var(--muted)" : ""}">${escapeHtml(rule.name)}</span>
+          ${!rule.enabled && !disc ? `<span style="font-size:10.5px;font-weight:600;color:var(--faint);background:var(--bg-sub);border:1px solid var(--border);padding:2px 8px;border-radius:20px">Paused</span>` : ""}
+          ${rule.orphaned ? `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;color:var(--sev-high);background:color-mix(in srgb,var(--sev-high) 13%,transparent);padding:2px 8px;border-radius:20px">${ICON_ALERT}${escapeHtml(rule.orphanReason || "")}</span>` : ""}
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:11px">
+          ${chips || `<span style="font-size:12px;color:var(--faint);font-style:italic;align-self:center">Every confirmed task</span>`}
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <span style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:500;color:${inactive ? "var(--faint)" : "var(--muted)"}">${escapeHtml(rule.channelName)}</span>
+          ${rule.dmOwner ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted)">Also DMs the code owner</span>` : ""}
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px;flex:none">
+        <button data-act="slack-rule-toggle" data-id="${rule.id}" title="${on ? "Pause rule" : "Enable rule"}" style="position:relative;width:34px;height:20px;border-radius:20px;flex:none;background:${on ? "var(--oc-done)" : "var(--border-str)"};${disc ? "opacity:.5;pointer-events:none" : ""}"><span style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transform:translateX(${on ? 14 : 0}px)"></span></button>
+        <button data-act="slack-rule-edit" data-id="${rule.id}" title="Edit rule" style="width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--faint)">${ICON_EDIT}</button>
+        <button data-act="slack-rule-delete" data-id="${rule.id}" title="Delete rule" style="width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--faint)">${ICON_TRASH}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderSlackConnectedShell() {
-  return `<div>Connected view lands in Task 8.</div>`;
+  const disc = SLACK_STATUS.status === "disconnected";
+  const ruleCountLabel = SLACK_RULES.length === 1 ? "1 rule" : `${SLACK_RULES.length} rules`;
+  return `
+  <div>
+    ${disc ? `
+    <div style="display:flex;align-items:center;gap:11px;padding:12px 16px;border-radius:12px;background:color-mix(in srgb,var(--sev-med) 13%,transparent);border:1px solid color-mix(in srgb,var(--sev-med) 34%,transparent);margin-bottom:16px">
+      ${ICON_WARN}
+      <span style="font-size:12.5px;line-height:1.45;color:var(--text)"><b style="font-weight:600">Slack disconnected.</b> <span style="color:var(--muted)">Your rules are saved but paused. Reconnect to reactivate them &mdash; nothing was deleted.</span></span>
+    </div>` : ""}
+
+    <div style="display:flex;align-items:center;gap:14px;padding:16px 18px;border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);box-shadow:var(--shadow);${disc ? "opacity:.72" : ""}">
+      <span style="width:42px;height:42px;flex:none;border-radius:11px;background:${disc ? "var(--faint)" : "#4A154B"};display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px">${escapeHtml((SLACK_STATUS.team_name || "?")[0] || "?")}</span>
+      <div style="min-width:0;flex:1">
+        <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+          <span style="font-weight:700;font-size:15.5px;letter-spacing:-.01em">${escapeHtml(SLACK_STATUS.team_name || "")}</span>
+          ${!disc ? `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--oc-done);background:color-mix(in srgb,var(--oc-done) 13%,transparent);padding:2px 8px;border-radius:20px"><span style="width:6px;height:6px;border-radius:50%;background:var(--oc-done)"></span>Connected</span>` : `<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--faint);background:var(--bg-sub);border:1px solid var(--border);padding:2px 8px;border-radius:20px"><span style="width:6px;height:6px;border-radius:50%;background:var(--faint)"></span>Disconnected</span>`}
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:3px">Connected by <b style="color:var(--text);font-weight:500">${escapeHtml(SLACK_STATUS.connected_by_email || "")}</b></div>
+      </div>
+      <div style="display:flex;gap:8px;flex:none">
+        ${!disc ? `<button data-act="slack-connect" style="display:flex;align-items:center;gap:6px;padding:8px 13px;border:1px solid var(--border-str);border-radius:9px;font-size:12.5px;font-weight:500;color:var(--text)">${ICON_REFRESH}Reconnect</button>` : ""}
+        <button data-act="${disc ? "slack-connect" : "slack-ask-disconnect"}" style="${disc ? "display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:9px;font-size:12.5px;font-weight:600;background:var(--accent);color:var(--accent-fg)" : "display:flex;align-items:center;gap:6px;padding:8px 13px;border:1px solid color-mix(in srgb,var(--sev-high) 40%,transparent);border-radius:9px;font-size:12.5px;font-weight:500;color:var(--sev-high)"}">${disc ? "Reconnect" : "Disconnect"}</button>
+      </div>
+    </div>
+
+    <div style="display:flex;align-items:flex-start;gap:16px;margin:28px 0 14px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:11.5px;color:var(--faint);font-weight:600;letter-spacing:.02em;margin-bottom:4px">ROUTING RULES</div>
+        <div style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);line-height:1.5">${ICON_INFO}If a task matches more than one rule, it's sent to <b style="color:var(--text);font-weight:500">every</b> matching channel.</div>
+      </div>
+      <button data-act="slack-new-rule" style="flex:none;display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:9px;font-size:12.5px;font-weight:600;background:var(--accent);color:var(--accent-fg)">${ICON_PLUS}New rule</button>
+    </div>
+
+    ${SLACK_RULES.length === 0 ? `
+    <div style="border:1px dashed var(--border-str);border-radius:14px;padding:38px 22px;text-align:center">
+      <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:5px">No rules yet</div>
+      <div style="font-size:12.5px;color:var(--muted);max-width:38ch;margin:0 auto 16px;line-height:1.5">Nothing is being sent to Slack until you add one. A rule decides which confirmed tasks land in which channel.</div>
+      <button data-act="slack-new-rule" style="display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border-radius:9px;background:var(--accent);color:var(--accent-fg);font-size:13px;font-weight:600">${ICON_PLUS}New rule</button>
+    </div>` : `
+    <div style="display:flex;flex-direction:column;gap:11px">${SLACK_RULES.map(renderSlackRuleCard).join("")}</div>`}
+  </div>
+  ${state.slackConfirmDisconnect ? `
+  <div class="modal-overlay" data-act="slack-cancel-disconnect">
+    <div class="modal-card" data-act="slack-stop" style="width:420px;max-width:100%;padding:24px">
+      <div style="display:flex;align-items:center;gap:11px;margin-bottom:13px">
+        <span style="width:38px;height:38px;flex:none;border-radius:10px;background:color-mix(in srgb,var(--sev-high) 13%,transparent);color:var(--sev-high);display:grid;place-items:center">${ICON_WARN}</span>
+        <div style="font-size:16px;font-weight:700;letter-spacing:-.01em">Disconnect Slack?</div>
+      </div>
+      <p style="font-size:13px;line-height:1.6;color:var(--muted);margin:0 0 20px">This stops all routing immediately &mdash; no confirmed bugs will reach Slack until you reconnect. <b style="color:var(--text);font-weight:500">Your ${ruleCountLabel} are kept, not deleted</b>, and reactivate when you reconnect.</p>
+      <div style="display:flex;justify-content:flex-end;gap:9px">
+        <button data-act="slack-cancel-disconnect" style="padding:9px 15px;border-radius:9px;font-size:13px;font-weight:500;color:var(--text);border:1px solid var(--border-str)">Keep connected</button>
+        <button data-act="slack-do-disconnect" style="padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;color:#fff;background:var(--sev-high)">Disconnect</button>
+      </div>
+    </div>
+  </div>` : ""}`;
 }
 
 function renderKnowledgeTab() {
@@ -2205,6 +2313,27 @@ document.addEventListener("click", e => {
   else if (act === "session-tab") { state.sessionTab = el.dataset.tab; render(); }
   else if (act === "settings-tab") { state.settingsTab = el.dataset.tab; render(); }
   else if (act === "slack-connect") { window.location.href = "/api/slack/oauth/start"; }
+  else if (act === "slack-stop") { /* no-op: absorbs clicks inside a modal card so they don't bubble to the overlay's close handler */ }
+  else if (act === "slack-ask-disconnect") { state.slackConfirmDisconnect = true; render(); }
+  else if (act === "slack-cancel-disconnect") { state.slackConfirmDisconnect = false; render(); }
+  else if (act === "slack-do-disconnect") {
+    state.slackConfirmDisconnect = false;
+    fetch("/api/slack/disconnect", { method: "POST" }).then(async res => {
+      if (res.ok) { SLACK_STATUS = await (await fetch("/api/slack/status")).json(); flash("Slack disconnected — rules kept"); render(); }
+    });
+  }
+  else if (act === "slack-rule-toggle") {
+    const id = el.dataset.id;
+    fetch(`/api/slack/rules/${id}/toggle`, { method: "POST" }).then(async res => {
+      if (res.ok) { SLACK_RULES = await (await fetch("/api/slack/rules")).json(); render(); }
+    });
+  }
+  else if (act === "slack-rule-delete") {
+    const id = el.dataset.id;
+    fetch(`/api/slack/rules/${id}`, { method: "DELETE" }).then(async res => {
+      if (res.ok) { SLACK_RULES = await (await fetch("/api/slack/rules")).json(); flash("Rule deleted"); render(); }
+    });
+  }
   else if (act === "conn-start") { connStart(); }
   else if (act === "conn-cancel") { connCancel(); }
   else if (act === "conn-run") { connRun(); }
