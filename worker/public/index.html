@@ -2187,6 +2187,99 @@ function slackTogglePillCond(key, val) {
   if (typeof runSlackDryRun === "function") runSlackDryRun();
 }
 
+async function loadSlackChannelsForBuilder() {
+  const res = await fetch("/api/slack/channels");
+  if (res.ok) { state.slackChannels = await res.json(); render(); }
+  else { state.slackChannels = []; render(); }
+}
+
+let _slackDryRunTimer = null;
+function runSlackDryRun() {
+  clearTimeout(_slackDryRunTimer);
+  _slackDryRunTimer = setTimeout(async () => {
+    if (!state.slackBuilder) return;
+    const res = await fetch("/api/slack/dry-run", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ cond: state.slackBuilder.cond }),
+    });
+    if (res.ok) { state.slackDryRun = await res.json(); render(); }
+  }, 300);
+}
+
+function renderSlackDestinationSection() {
+  const b = state.slackBuilder;
+  const cq = (state.slackChannelQuery || "").toLowerCase();
+  const channels = state.slackChannels || [];
+  const channelMatches = channels.filter(c => cq === "" || c.name.toLowerCase().includes(cq));
+
+  let channelHtml;
+  if (b.channelId) {
+    const meta = channels.find(c => c.id === b.channelId);
+    channelHtml = `<div style="display:flex;align-items:center;gap:10px;padding:11px 14px;border:1px solid var(--border-str);border-radius:10px;background:var(--bg-sub)">
+      <span style="font-weight:600;font-size:13.5px">${escapeHtml(b.channelName)}</span>
+      <span style="font-size:11.5px;color:var(--faint)">${meta ? meta.num_members + " members" : ""}</span>
+      <button data-act="slack-clear-channel" style="margin-left:auto;font-size:12px;color:var(--accent);font-weight:500">Change</button>
+    </div>`;
+  } else {
+    channelHtml = `<div>
+      <div style="display:flex;align-items:center;gap:9px;height:42px;padding:0 13px;border-radius:10px;border:1px solid var(--border-str);background:var(--bg)">
+        <input id="slackChannelQueryInput" value="${escapeHtml(state.slackChannelQuery || "")}" placeholder="Search channels…" spellcheck="false" style="flex:1;min-width:0;background:none;border:none;outline:none;color:var(--text);font-size:13.5px"/>
+      </div>
+      <div style="margin-top:6px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elev);box-shadow:var(--shadow);overflow:hidden;max-height:190px;overflow-y:auto">
+        ${channels === null ? `<div style="padding:11px 13px;font-size:12.5px;color:var(--faint)">Loading channels…</div>`
+          : channelMatches.length ? channelMatches.map(c => `<button data-act="slack-pick-channel" data-id="${escapeHtml(c.id)}" data-name="${escapeHtml(c.name)}" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 13px;text-align:left;border-bottom:1px solid var(--border-soft)"><span style="font-weight:500;font-size:13.5px">${escapeHtml(c.name)}</span><span style="margin-left:auto;font-size:11.5px;color:var(--faint)">${c.num_members} members</span></button>`).join("")
+          : `<div style="padding:11px 13px;font-size:12.5px;color:var(--faint)">No channels match "${escapeHtml(state.slackChannelQuery)}".</div>`}
+      </div>
+    </div>`;
+  }
+
+  const dm = !!b.dmOwner;
+  const dryRun = state.slackDryRun;
+  const zero = dryRun && dryRun.total === 0;
+
+  return `
+  <div>
+    <div style="font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--faint);text-transform:uppercase;margin-bottom:12px">Destination</div>
+    <label style="display:block;font-size:13px;font-weight:500;margin-bottom:8px">Channel</label>
+    ${channelHtml}
+    <div style="display:flex;align-items:flex-start;gap:12px;margin-top:16px;padding:13px 15px;border:1px solid var(--border);border-radius:11px">
+      <button data-act="slack-toggle-dm" style="position:relative;width:38px;height:22px;border-radius:20px;flex:none;margin-top:1px;background:${dm ? "var(--oc-done)" : "var(--border-str)"}"><span style="position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transform:translateX(${dm ? 16 : 0}px)"></span></button>
+      <div style="min-width:0"><div style="font-size:13.5px;font-weight:600">Also DM the code owner</div><div style="font-size:12px;color:var(--muted);line-height:1.5;margin-top:2px">Also sends a direct message to whoever last touched the relevant code, when we can determine that.</div></div>
+    </div>
+  </div>
+  <div style="padding:15px 16px;border-radius:12px;background:${zero ? "var(--bg-sub)" : "color-mix(in srgb,var(--accent) 5%,transparent)"};border:1px solid ${zero ? "var(--border)" : "color-mix(in srgb,var(--accent) 22%,transparent)"}">
+    <div style="display:flex;align-items:center;gap:9px;margin-bottom:${zero ? "6px" : "11px"}">
+      ${ICON_SPARKLE}
+      <span style="font-size:13px;font-weight:600;color:var(--text)">${dryRun ? `This rule would have matched ${dryRun.total} of the last 50 tasks.` : "Checking recent tasks…"}</span>
+    </div>
+    ${dryRun && dryRun.total > 0 ? `<div style="display:flex;flex-direction:column;gap:1px;border:1px solid var(--border);border-radius:10px;overflow:hidden">${dryRun.matches.map(t => `<div style="display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--bg-elev)"><span style="flex:1;min-width:0;font-size:12.5px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(t.title)}</span><span style="font-size:11px;font-weight:500;flex:none">${escapeHtml(t.severity)}</span><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--faint);flex:none;width:46px;text-align:right">${escapeHtml(t.when)}</span></div>`).join("")}${dryRun.total > 4 ? `<div style="padding:8px 13px;font-size:11.5px;color:var(--faint);background:var(--bg-elev);border-top:1px solid var(--border-soft)">+ ${dryRun.total - 4} more match${dryRun.total - 4 === 1 ? "" : "es"}</div>` : ""}</div>` : ""}
+    ${zero ? `<div style="font-size:12px;color:var(--faint);line-height:1.5">No recent matches &mdash; that's fine if this rule is meant to be rare. It'll fire the next time a task fits.</div>` : ""}
+  </div>`;
+}
+
+function slackSaveButtonHtml() {
+  const b = state.slackBuilder;
+  const ready = !!(b.name.trim() && b.channelId);
+  return `<button data-act="slack-save-rule" style="padding:9px 17px;border-radius:9px;font-size:13px;font-weight:600;color:var(--accent-fg);background:var(--accent);opacity:${ready ? 1 : .45};pointer-events:${ready ? "auto" : "none"}">${b.mode === "edit" ? "Save changes" : "Create rule"}</button>`;
+}
+
+async function saveSlackRule() {
+  const b = state.slackBuilder;
+  if (!b || !b.name.trim() || !b.channelId) return;
+  const payload = { name: b.name.trim(), channelId: b.channelId, channelName: b.channelName, dmOwner: b.dmOwner, cond: b.cond };
+  const res = b.mode === "edit"
+    ? await fetch(`/api/slack/rules/${b.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) })
+    : await fetch("/api/slack/rules", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+  if (res.ok) {
+    SLACK_RULES = await (await fetch("/api/slack/rules")).json();
+    flash(b.mode === "edit" ? "Rule updated" : `Rule added — routing to ${b.channelName}`);
+    state.slackBuilder = null;
+    render();
+  } else {
+    flash("Could not save rule");
+  }
+}
+
 function renderKnowledgeTab() {
   return `
   <div class="section-label" style="margin-bottom:4px">COMPANY KNOWLEDGE</div>
@@ -2439,6 +2532,7 @@ document.addEventListener("click", e => {
     state.slackGoalQuery = ""; state.slackTagQuery = ""; state.slackChannelQuery = ""; state.slackChannels = null; state.slackDryRun = null;
     render();
     if (typeof loadSlackChannelsForBuilder === "function") loadSlackChannelsForBuilder();
+    if (typeof runSlackDryRun === "function") runSlackDryRun();
   }
   else if (act === "slack-rule-edit") {
     const rule = SLACK_RULES.find(r => r.id === Number(el.dataset.id));
@@ -2458,6 +2552,10 @@ document.addEventListener("click", e => {
   else if (act === "slack-remove-tag") { state.slackBuilder.cond.tagIds = state.slackBuilder.cond.tagIds.filter(id => id !== Number(el.dataset.id)); render(); if (typeof runSlackDryRun === "function") runSlackDryRun(); }
   else if (act === "slack-add-goal") { state.slackBuilder.cond.goalIds = [...state.slackBuilder.cond.goalIds, Number(el.dataset.id)]; state.slackGoalQuery = ""; render(); if (typeof runSlackDryRun === "function") runSlackDryRun(); }
   else if (act === "slack-add-tag") { state.slackBuilder.cond.tagIds = [...state.slackBuilder.cond.tagIds, Number(el.dataset.id)]; state.slackTagQuery = ""; render(); if (typeof runSlackDryRun === "function") runSlackDryRun(); }
+  else if (act === "slack-pick-channel") { state.slackBuilder.channelId = el.dataset.id; state.slackBuilder.channelName = el.dataset.name; state.slackChannelQuery = ""; render(); }
+  else if (act === "slack-clear-channel") { state.slackBuilder.channelId = null; state.slackBuilder.channelName = null; state.slackChannelQuery = ""; render(); }
+  else if (act === "slack-toggle-dm") { state.slackBuilder.dmOwner = !state.slackBuilder.dmOwner; render(); }
+  else if (act === "slack-save-rule") { saveSlackRule(); }
   else if (act === "conn-start") { connStart(); }
   else if (act === "conn-cancel") { connCancel(); }
   else if (act === "conn-run") { connRun(); }
