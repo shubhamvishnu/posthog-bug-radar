@@ -114,6 +114,14 @@ async function decryptSecret(env, ciphertextB64, ivB64) {
   return new TextDecoder().decode(plain);
 }
 
+async function getSlackBotToken(env, ownerEmail) {
+  const row = await env.DB.prepare(
+    "SELECT encrypted_bot_token, iv FROM slack_connections WHERE owner_email = ? AND status = 'connected'"
+  ).bind(ownerEmail).first();
+  if (!row || !row.encrypted_bot_token) return null;
+  return decryptSecret(env, row.encrypted_bot_token, row.iv);
+}
+
 /* ---------------- PostHog discovery ---------------- */
 const PH_REGIONS = { us: "https://us.posthog.com", eu: "https://eu.posthog.com" };
 
@@ -1106,6 +1114,40 @@ export default {
            iv=excluded.iv, connected_by_email=excluded.connected_by_email, status='connected', updated_at=datetime('now')`
       ).bind(ownerEmail, tokenData.team.id, tokenData.team.name, ciphertext, iv, ownerEmail).run();
       return Response.redirect(`${appOrigin}/?slack=connected`, 302);
+    }
+
+    if (pathname === "/api/slack/channels" && request.method === "GET") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const token = await getSlackBotToken(env, email);
+      if (!token) return json({ error: "Slack not connected" }, 400);
+      const channels = [];
+      let cursor = "";
+      for (let page = 0; page < 10; page++) {
+        const qs = new URLSearchParams({ types: "public_channel", exclude_archived: "true", limit: "200" });
+        if (cursor) qs.set("cursor", cursor);
+        const res = await fetch(`https://slack.com/api/conversations.list?${qs}`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (!data.ok) return json({ error: `Slack error: ${data.error || "unknown"}` }, 502);
+        for (const c of data.channels || []) {
+          channels.push({ id: c.id, name: `#${c.name}`, num_members: c.num_members || 0 });
+        }
+        cursor = data.response_metadata && data.response_metadata.next_cursor;
+        if (!cursor) break;
+        if (channels.length >= 500) break;
+      }
+      return json(channels);
+    }
+
+    if (pathname === "/api/slack/disconnect" && request.method === "POST") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      await env.DB.prepare(
+        "UPDATE slack_connections SET status = 'disconnected', encrypted_bot_token = NULL, iv = NULL, updated_at = datetime('now') WHERE owner_email = ?"
+      ).bind(email).run();
+      return json({ ok: true });
     }
 
     if (pathname === "/api/tags" && request.method === "POST") {
