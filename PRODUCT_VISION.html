@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Singularity</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --ink:#131110;
+    --surface:#1c1916;
+    --surface-2:#221e1a;
+    --line:#332e29;
+    --noise:#7c8591;
+    --noise-dim:#565d66;
+    --signal:#ff5a36;
+    --signal-dim:#c94628;
+    --text:#f3ede4;
+    --muted:#a89b8c;
+    --faint:#6b6058;
+    --font-mono: "Trebuchet MS", Trebuchet, "Segoe UI", Verdana, sans-serif;
+    --font-sans: "Trebuchet MS", Trebuchet, "Segoe UI", Verdana, sans-serif;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:var(--font-sans);
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+
+  body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    z-index:0;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(255,90,54,0.07), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.014) 0px, rgba(255,255,255,0.014) 1px, transparent 1px, transparent 3px);
+  }
+
+  a{color:var(--signal)}
+
+  .wrap{max-width:1180px;margin:0 auto;padding-left:28px;padding-right:28px;position:relative;z-index:1}
+  .prose{max-width:640px}
+
+  .eyebrow{
+    font-family:var(--font-mono);
+    font-size:12px;
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--noise);
+    margin:0 0 16px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .eyebrow::before{
+    content:"";
+    width:16px;height:1px;
+    background:var(--noise-dim);
+    display:inline-block;
+  }
+
+  h1,h2{
+    font-family:var(--font-mono);
+    font-weight:600;
+    letter-spacing:-.01em;
+    text-wrap:balance;
+    margin:0;
+  }
+
+  p{line-height:1.65;color:var(--muted);text-wrap:pretty}
+
+  /* ---------------- top mark ---------------- */
+  .mark{
+    display:flex;align-items:center;gap:8px;
+    font-family:var(--font-mono);font-size:13px;
+    letter-spacing:.08em;color:var(--faint);
+    padding:36px 0 0;
+  }
+  .mark svg{width:16px;height:16px;flex:none;color:var(--signal)}
+
+  /* ---------------- hero ---------------- */
+  .hero{padding:84px 0 120px;text-align:center}
+  .hero .eyebrow{justify-content:center}
+  .hero .eyebrow::after{content:"";width:16px;height:1px;background:var(--noise-dim);display:inline-block}
+  .hero .eyebrow::before{display:none}
+  h1{font-size:clamp(2.4rem, 6vw, 4.6rem);line-height:1.12;margin:0 auto 22px;max-width:920px}
+  h1 .accent{color:var(--signal)}
+  .hero-copy{max-width:640px;margin:0 auto 64px;display:flex;flex-direction:column;gap:18px}
+  .hero-copy p{font-size:18px;margin:0}
+
+  .hero-scope{width:min(260px, 60vw);height:min(260px, 60vw);margin:0 auto}
+  .hero-scope svg{width:100%;height:100%;display:block}
+
+  .scroll-cue{
+    margin-top:70px;font-family:var(--font-mono);font-size:11px;
+    letter-spacing:.14em;color:var(--faint);text-transform:uppercase;
+    display:flex;align-items:center;justify-content:center;gap:8px;
+  }
+  .scroll-cue .bar{width:1px;height:22px;background:linear-gradient(var(--faint), transparent);animation:pulse-bar 1.8s ease-in-out infinite}
+
+  /* ---------------- section rhythm ---------------- */
+  section{padding:110px 0;border-top:1px solid var(--line)}
+  .section-head{display:grid;grid-template-columns:1fr 1.4fr;gap:56px;align-items:start}
+  .section-head h2{font-size:clamp(1.4rem, 2.6vw, 1.9rem);line-height:1.25}
+
+  @media (max-width: 760px){
+    .section-head{grid-template-columns:1fr}
+  }
+
+  /* ---------------- diagram ---------------- */
+  .diagram-shell{margin-top:72px}
+  .diagram-figure{margin:0}
+  .diagram-figure svg{width:100%;height:auto;display:block}
+  .hud{
+    font-family:var(--font-mono);font-size:15px;font-weight:600;letter-spacing:.03em;
+    color:var(--signal);text-align:center;
+    height:20px;margin-bottom:22px;
+  }
+  .hud::before{content:"◆ "}
+
+  .node-grid{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:1px;
+    background:var(--line);
+    border:1px solid var(--line);
+    margin-top:64px;
+  }
+  @media (max-width: 760px){ .node-grid{grid-template-columns:1fr} }
+
+  .node-card{background:var(--surface);padding:30px 26px;min-height:160px;display:flex;flex-direction:column;gap:12px}
+  .node-card.core{background:var(--surface-2)}
+  .node-title{
+    font-family:var(--font-mono);font-size:14px;font-weight:600;
+    letter-spacing:.02em;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  }
+  .node-status{
+    font-family:var(--font-mono);font-size:13px;letter-spacing:.02em;
+    color:var(--faint);font-weight:600;white-space:nowrap;
+  }
+  .node-status.now{color:var(--noise)}
+  .node-status.hot{color:var(--signal-dim)}
+  .node-card p{font-size:13.5px;line-height:1.55;margin:0;color:var(--muted)}
+
+  /* ---------------- problem / unlock text sections ---------------- */
+  .stack{display:flex;flex-direction:column;gap:24px}
+
+  .closer{
+    padding:130px 0 150px;text-align:center;border-top:1px solid var(--line);
+  }
+  .closer-copy{display:flex;flex-direction:column;gap:24px;max-width:820px;margin:0 auto}
+  .closer p{
+    font-family:var(--font-mono);
+    font-size:clamp(1.15rem, 2.6vw, 1.55rem);
+    color:var(--text);line-height:1.5;margin:0;
+    text-wrap:balance;
+  }
+  .closer p .accent{color:var(--signal)}
+  .closer .eyebrow{justify-content:center;margin-bottom:26px}
+  .closer .eyebrow::after{content:"";width:16px;height:1px;background:var(--noise-dim);display:inline-block}
+  .closer .eyebrow::before{display:none}
+
+  footer.meta{
+    padding:40px 0 64px;border-top:1px solid var(--line);
+    font-family:var(--font-mono);font-size:11px;color:var(--faint);
+    display:flex;justify-content:space-between;align-items:flex-start;gap:20px;flex-wrap:wrap;
+  }
+  .meta-brand{display:flex;flex-direction:column;gap:6px}
+  .meta-label{color:var(--faint)}
+  .meta-name{color:var(--text);font-size:14px;font-weight:700;letter-spacing:.01em}
+  .meta-tag{color:var(--noise)}
+  .meta-flow{color:var(--faint);white-space:nowrap;padding-top:2px}
+
+  /* ---------------- fade-up reveal: plays once on load, never depends on scroll/JS ---------------- */
+  @keyframes fade-up{ from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:none} }
+  .reveal{animation:fade-up .8s ease both}
+
+  /* ---------------- scope symbol styling (shared by hero + diagram core) ---------------- */
+  .scope-ring-outer{stroke:var(--line);stroke-width:1.6;fill:none}
+  .scope-ring{stroke:var(--line);stroke-width:1;fill:none;opacity:.75}
+  .scope-cross{stroke:var(--line);stroke-width:1;opacity:.55}
+  .scope-center{fill:var(--signal)}
+  .blip{fill:var(--signal)}
+  .blip-a{animation:blip-pulse 5s ease-in-out infinite}
+  .blip-b{animation:blip-pulse 5s ease-in-out infinite; animation-delay:1.7s}
+  .blip-c{animation:blip-pulse 5s ease-in-out infinite; animation-delay:3.3s}
+  .sweep-group{
+    transform-box:view-box;
+    transform-origin:100px 100px;
+    animation:sweep-rotate 5s linear infinite;
+  }
+
+  @keyframes sweep-rotate{ to{ transform:rotate(360deg) } }
+  @keyframes blip-pulse{
+    0%,64%{opacity:0;transform:scale(.6)}
+    72%{opacity:1;transform:scale(1.15)}
+    84%{opacity:.55;transform:scale(1)}
+    100%{opacity:0;transform:scale(.6)}
+  }
+  @keyframes pulse-bar{ 0%,100%{opacity:.25} 50%{opacity:1} }
+
+  /* ---------------- flow lines ---------------- */
+  .flow-in{stroke:var(--noise);stroke-width:1.6;fill:none;stroke-dasharray:5 9;animation:flow 1.4s linear infinite}
+  .flow-out{stroke:var(--signal-dim);stroke-width:1.8;fill:none;stroke-dasharray:5 9;animation:flow 1.4s linear infinite}
+  @keyframes flow{ to{ stroke-dashoffset:-14 } }
+
+  .flow-label{
+    font-family:var(--font-mono);font-size:14px;font-weight:600;letter-spacing:.01em;
+    fill:var(--noise);
+  }
+  .flow-label.out{fill:var(--signal-dim)}
+  .card-title{font-family:var(--font-mono);font-size:16px;font-weight:700;fill:var(--text)}
+  .card-sub{font-family:var(--font-mono);font-size:13px;font-weight:600;letter-spacing:.01em;fill:var(--noise)}
+  .card-tag{font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:.01em}
+  .card-rect{fill:var(--surface);stroke:var(--line);stroke-width:1}
+  .card-rect.core{fill:var(--surface-2);stroke:var(--signal-dim)}
+
+  @media (prefers-reduced-motion: reduce){
+    .sweep-group, .blip-a, .blip-b, .blip-c, .flow-in, .flow-out, .scroll-cue .bar{
+      animation:none !important;
+    }
+    .blip{opacity:.85}
+    .reveal{animation:none;opacity:1;transform:none}
+  }
+</style>
+</head>
+<body>
+
+<!-- shared defs: the scope symbol, reused at hero scale and diagram scale -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="scope-symbol" viewBox="0 0 200 200">
+      <circle cx="100" cy="100" r="86" class="scope-ring-outer"/>
+      <circle cx="100" cy="100" r="58" class="scope-ring"/>
+      <circle cx="100" cy="100" r="30" class="scope-ring"/>
+      <line x1="100" y1="14" x2="100" y2="186" class="scope-cross"/>
+      <line x1="14" y1="100" x2="186" y2="100" class="scope-cross"/>
+      <g class="sweep-group">
+        <path d="M100,100 L100,14 A86,86 0 0 1 143,25.5 Z" fill="url(#sweepGrad)"/>
+      </g>
+      <circle cx="140" cy="70" r="4.5" class="blip blip-a"/>
+      <circle cx="63" cy="128" r="4.5" class="blip blip-b"/>
+      <circle cx="122" cy="146" r="3.5" class="blip blip-c"/>
+      <circle cx="100" cy="100" r="5" class="scope-center"/>
+    </symbol>
+    <linearGradient id="sweepGrad" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ff5a36" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#ff5a36" stop-opacity="0.55"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 Z" fill="currentColor"/>
+    </marker>
+  </defs>
+</svg>
+
+<div class="wrap">
+  <div class="mark">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9" opacity=".35"/><circle cx="12" cy="12" r="5" opacity=".6"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><path d="M12 12 19 6" opacity=".9"/></svg>
+    SINGULARITY
+  </div>
+</div>
+
+<header class="hero wrap">
+  <p class="eyebrow">the vision</p>
+  <h1>Seen it. On it. <span class="accent">Fixed it.</span></h1>
+  <div class="hero-copy">
+    <p>Customers don&rsquo;t experience problems on our timeline. By the time they tell us, the moment of frustration has already passed.</p>
+    <p>Singularity acts in the moment: seeing it, getting on it, reaching the customer, alerting the team, and driving the fix.</p>
+    <p>It brings together PostHog, Last9, Linear, and Slack to connect the dots: what the customer experienced, what happened underneath, who needs to act, and what needs to be fixed.</p>
+  </div>
+
+  <div class="hero-scope reveal" id="heroScope">
+    <svg viewBox="0 0 200 200" role="img" aria-label="A radar scope sweeping and lighting up three detected signals">
+      <use href="#scope-symbol"/>
+    </svg>
+  </div>
+
+  <div class="scroll-cue"><span class="bar"></span>how it comes together</div>
+</header>
+
+<section class="wrap">
+  <div class="section-head reveal">
+    <p class="eyebrow">the problem</p>
+    <h2>Every product is instrumented twice, and watched by no one.</h2>
+  </div>
+  <div class="stack prose reveal" style="margin-top:42px; margin-left:auto">
+    <p>PostHog sees what the customer experienced. Last9 sees what happened underneath. The click that didn&rsquo;t respond. The flow they abandoned. The request that timed out. The queue that backed up.</p>
+    <p>The problem lives in the gap between those signals. A customer struggles, the system quietly regresses, and nobody connects the two until the customer tells you.</p>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="section-head reveal">
+    <p class="eyebrow">how it comes together</p>
+    <h2>One brain. Two ears. Three ways to act.</h2>
+  </div>
+  <div class="prose reveal" style="margin-top:42px; margin-left:auto">
+    <p>Singularity listens to both sides of the product at once, connects the signals, and decides what matters, then acts in three directions: the customer, the team, and the code.</p>
+  </div>
+
+  <div class="diagram-shell reveal">
+    <div class="hud" id="hud">scanning</div>
+    <figure class="diagram-figure">
+      <svg viewBox="0 0 1160 680" role="img" aria-label="PostHog and Last9 feed behavior and system signal into Singularity at the center, which correlates them and sends confirmed bugs out to Slack and Linear for the team, directly to the affected customer below, and from Linear onward into an automatically raised pull request.">
+
+        <!-- input flow lines -->
+        <path d="M220,192 C380,192 380,300 494,300" class="flow-in"/>
+        <path d="M220,472 C380,472 380,364 494,364" class="flow-in"/>
+        <!-- output flow lines -->
+        <path d="M667,300 C820,300 820,192 940,192" class="flow-out"/>
+        <path d="M667,364 C820,364 820,472 940,472" class="flow-out"/>
+        <path d="M580,424 C580,470 580,520 580,572" class="flow-out"/>
+        <path d="M1030,524 C1030,545 1030,551 1030,572" class="flow-out"/>
+
+        <!-- flow labels -->
+        <text x="390" y="225" class="flow-label" text-anchor="middle">clicks, errors</text>
+        <text x="390" y="440" class="flow-label" text-anchor="middle">logs, traces</text>
+        <text x="790" y="225" class="flow-label out" text-anchor="middle">notify team</text>
+        <text x="790" y="440" class="flow-label out" text-anchor="middle">file ticket</text>
+        <text x="580" y="498" class="flow-label out" text-anchor="middle">reach customer</text>
+        <text x="1030" y="552" class="flow-label out" text-anchor="middle">raise pr</text>
+
+        <!-- PostHog card -->
+        <rect x="40" y="140" width="180" height="104" rx="6" class="card-rect"/>
+        <text x="60" y="174" class="card-title">PostHog</text>
+        <text x="60" y="198" class="card-sub">Behavior signal</text>
+        <text x="60" y="220" class="card-tag" fill="#7c8591">live today</text>
+
+        <!-- Last9 card -->
+        <rect x="40" y="420" width="180" height="104" rx="6" class="card-rect"/>
+        <text x="60" y="454" class="card-title">Last9</text>
+        <text x="60" y="478" class="card-sub">System signal</text>
+        <text x="60" y="500" class="card-tag" fill="#7c8591">next</text>
+
+        <!-- core scope -->
+        <use href="#scope-symbol" x="488" y="240" width="184" height="184"/>
+        <text x="580" y="456" class="card-title" text-anchor="middle">Singularity</text>
+
+        <!-- Slack card -->
+        <rect x="940" y="140" width="180" height="104" rx="6" class="card-rect"/>
+        <text x="960" y="174" class="card-title">Slack</text>
+        <text x="960" y="198" class="card-sub">Team alert</text>
+        <text x="960" y="220" class="card-tag" fill="#7c8591">next</text>
+
+        <!-- Linear card -->
+        <rect x="940" y="420" width="180" height="104" rx="6" class="card-rect"/>
+        <text x="960" y="454" class="card-title">Linear</text>
+        <text x="960" y="478" class="card-sub">Tracked work</text>
+        <text x="960" y="500" class="card-tag" fill="#7c8591">next</text>
+
+        <!-- Customer card -->
+        <rect x="490" y="572" width="180" height="78" rx="6" class="card-rect core"/>
+        <text x="580" y="606" class="card-title" text-anchor="middle">Customer</text>
+        <text x="580" y="630" class="card-tag" text-anchor="middle" fill="#ff5a36">the goal</text>
+
+        <!-- Pull request card -->
+        <rect x="940" y="572" width="180" height="78" rx="6" class="card-rect"/>
+        <text x="960" y="606" class="card-title">Pull request</text>
+        <text x="960" y="630" class="card-tag" fill="#7c8591">future</text>
+      </svg>
+    </figure>
+  </div>
+
+  <div class="node-grid reveal">
+    <div class="node-card">
+      <div class="node-title">PostHog <span class="node-status now">live today</span></div>
+      <p>Behavior signal: clicks, rage clicks, dead clicks, front&#8209;end errors, and the session context around each one.</p>
+    </div>
+    <div class="node-card core">
+      <div class="node-title">Singularity <span class="node-status hot">the core</span></div>
+      <p>Correlates both streams per session, judges what&rsquo;s a real bug worth acting on, and decides who needs to know.</p>
+    </div>
+    <div class="node-card">
+      <div class="node-title">Slack <span class="node-status">next</span></div>
+      <p>The team finds out the moment it matters, in the channel they already live in. No dashboard to remember to check.</p>
+    </div>
+    <div class="node-card">
+      <div class="node-title">Last9 <span class="node-status">next</span></div>
+      <p>System signal: logs, traces, latency, and error rates, what the infrastructure actually did underneath them.</p>
+    </div>
+    <div class="node-card">
+      <div class="node-title">Linear <span class="node-status">next</span></div>
+      <p>A ticket gets filed with the evidence already attached: the session, the trace, the exact moment it broke.</p>
+    </div>
+    <div class="node-card">
+      <div class="node-title">Customer <span class="node-status hot">the goal</span></div>
+      <p>The person it happened to hears from us first, before they have to file a ticket or leave a review.</p>
+    </div>
+    <div class="node-card" style="grid-column:1 / -1">
+      <div class="node-title">Pull request <span class="node-status">future</span></div>
+      <p>From Linear, the fix drafts itself: a pull request raised automatically against the exact code the ticket points to, ready for someone to review instead of write from scratch.</p>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="section-head reveal">
+    <p class="eyebrow">why this order matters</p>
+    <h2>Detecting a problem isn&rsquo;t the hard part. Acting while it matters is.</h2>
+  </div>
+  <div class="stack prose reveal" style="margin-top:42px; margin-left:auto">
+    <p>Singularity turns scattered signals into one judgment, then closes the loop: the customer gets reached while the pain is fresh, the team knows what happened, and the work gets tracked and fixed.</p>
+    <p>The goal isn&rsquo;t just to catch problems. It&rsquo;s to turn a moment of frustration into a moment of trust.</p>
+  </div>
+</section>
+
+<div class="closer wrap">
+  <p class="eyebrow">the thesis</p>
+  <div class="closer-copy reveal">
+    <p>We&rsquo;re not building another dashboard.</p>
+    <p>We&rsquo;re building the layer that watches the dashboards for you. It connects what the customer experienced with what the system did, and acts before the customer has to ask.</p>
+    <p>See it. On it. <span class="accent">Before they say anything.</span></p>
+  </div>
+</div>
+
+<footer class="meta wrap">
+  <div class="meta-brand">
+    <span class="meta-label">Product / Bug Radar</span>
+    <span class="meta-name">Singularity</span>
+    <span class="meta-tag">See it. On it. Before they say anything.</span>
+  </div>
+  <div class="meta-flow">PostHog + Last9 &rarr; Singularity &rarr; Customer + Slack + Linear + PR</div>
+</footer>
+
+<script>
+  var hudEl = document.getElementById('hud');
+  var hudStates = ['scanning', 'correlating behavior + system signal', 'confirmed: real bug', 'notifying team', 'reaching customer'];
+  var hudReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (hudEl && !hudReduced) {
+    var i = 0;
+    setInterval(function () {
+      i = (i + 1) % hudStates.length;
+      hudEl.textContent = hudStates[i];
+    }, 2200);
+  }
+</script>
+</body>
+</html>

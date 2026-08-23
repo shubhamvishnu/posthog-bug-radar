@@ -1232,6 +1232,8 @@ export default {
       const email = await getSessionEmail(request, env);
       if (!email) return json({ error: "not authenticated" }, 401);
       const id = Number(ruleMatch[1]);
+      const owns = await env.DB.prepare("SELECT id FROM slack_rules WHERE id = ? AND owner_email = ?").bind(id, email).first();
+      if (!owns) return json({ error: "not found" }, 404);
       await env.DB.prepare("DELETE FROM slack_rules WHERE id = ? AND owner_email = ?").bind(id, email).run();
       return json({ ok: true });
     }
