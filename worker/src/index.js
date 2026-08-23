@@ -456,6 +456,45 @@ function slackRuleMatches(task, rule) {
   return true;
 }
 
+async function postSlackNotifications(env, ownerEmail, findings) {
+  try {
+    const conn = await env.DB.prepare("SELECT status FROM slack_connections WHERE owner_email = ?").bind(ownerEmail).first();
+    if (!conn || conn.status !== "connected") return;
+    const { results: rules } = await env.DB.prepare("SELECT * FROM slack_rules WHERE owner_email = ? AND enabled = 1").bind(ownerEmail).all();
+    if (!rules.length) return;
+    const token = await getSlackBotToken(env, ownerEmail);
+    if (!token) return;
+    for (const f of findings) {
+      for (const t of f.tasks || []) {
+        for (const rule of rules) {
+          if (!slackRuleMatches(t, rule)) continue;
+          const sevEmoji = t.severity === "high" ? "🔴" : t.severity === "medium" ? "🟠" : "⚪";
+          const fields = [
+            { type: "mrkdwn", text: `*Outcome*\n${t.outcome || "unresolved"}` },
+            { type: "mrkdwn", text: `*Real bug*\n${t.real_bug ? "Yes" : "No"}` },
+          ];
+          const blocks = [
+            { type: "section", text: { type: "mrkdwn", text: `${sevEmoji} *${t.title || "Untitled task"}*` } },
+            { type: "section", fields },
+            { type: "context", elements: [{ type: "mrkdwn", text: `Routed here: ${rule.name}` }] },
+          ];
+          try {
+            await fetch("https://slack.com/api/chat.postMessage", {
+              method: "POST",
+              headers: { authorization: `Bearer ${token}`, "content-type": "application/json; charset=utf-8" },
+              body: JSON.stringify({ channel: rule.channel_id, text: t.title || "A confirmed bug was detected", blocks }),
+            });
+          } catch (e) {
+            // best-effort: a Slack post failure must never fail the report push
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // best-effort at the outer level too — this function must never throw into its caller
+  }
+}
+
 async function getRecentTasksForOwner(env, ownerEmail, limit) {
   const { results: reportRows } = await env.DB.prepare(
     "SELECT micro_findings, generated_at FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 10"
@@ -599,6 +638,7 @@ export default {
           "scheduled"
         );
       }
+      await postSlackNotifications(env, ownerEmail, resolvedFindings);
       return json({ ok: true });
     }
 
@@ -727,6 +767,7 @@ export default {
           "manual · targeted"
         );
       }
+      await postSlackNotifications(env, ownerEmail, resolvedNewFindings);
       return json({ ok: true, merged_session_ids: newFindings.map(f => f.session_id), total_findings: mergedMicro.length });
     }
 
