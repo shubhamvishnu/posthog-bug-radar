@@ -2125,6 +2125,8 @@ function renderSlackRuleCard(rule) {
 function renderSlackConnectedShell() {
   const disc = SLACK_STATUS.status === "disconnected";
   const ruleCountLabel = SLACK_RULES.length === 1 ? "1 rule" : `${SLACK_RULES.length} rules`;
+  const ruleCountVerb = SLACK_RULES.length === 1 ? "is" : "are";
+  const ruleCountReactivateVerb = SLACK_RULES.length === 1 ? "reactivates" : "reactivate";
   return `
   <div>
     ${disc ? `
@@ -2171,7 +2173,7 @@ function renderSlackConnectedShell() {
         <span style="width:38px;height:38px;flex:none;border-radius:10px;background:color-mix(in srgb,var(--sev-high) 13%,transparent);color:var(--sev-high);display:grid;place-items:center">${ICON_WARN}</span>
         <div style="font-size:16px;font-weight:700;letter-spacing:-.01em">Disconnect Slack?</div>
       </div>
-      <p style="font-size:13px;line-height:1.6;color:var(--muted);margin:0 0 20px">This stops all routing immediately &mdash; no confirmed bugs will reach Slack until you reconnect. <b style="color:var(--text);font-weight:500">Your ${ruleCountLabel} are kept, not deleted</b>, and reactivate when you reconnect.</p>
+      <p style="font-size:13px;line-height:1.6;color:var(--muted);margin:0 0 20px">This stops all routing immediately &mdash; no confirmed bugs will reach Slack until you reconnect. <b style="color:var(--text);font-weight:500">Your ${ruleCountLabel} ${ruleCountVerb} kept, not deleted</b>, and ${ruleCountReactivateVerb} when you reconnect.</p>
       <div style="display:flex;justify-content:flex-end;gap:9px">
         <button data-act="slack-cancel-disconnect" style="padding:9px 15px;border-radius:9px;font-size:13px;font-weight:500;color:var(--text);border:1px solid var(--border-str)">Keep connected</button>
         <button data-act="slack-do-disconnect" style="padding:9px 16px;border-radius:9px;font-size:13px;font-weight:600;color:#fff;background:var(--sev-high)">Disconnect</button>
