@@ -5,3 +5,4 @@ report.json
 .DS_Store
 node_modules/
 vendor/_capture_shell.html
+.superpowers/
