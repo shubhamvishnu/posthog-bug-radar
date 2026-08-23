@@ -486,12 +486,14 @@ async function postSlackNotifications(env, ownerEmail, findings) {
             });
           } catch (e) {
             // best-effort: a Slack post failure must never fail the report push
+            console.error(`Slack post failed for rule ${rule.id} (owner ${ownerEmail}):`, e);
           }
         }
       }
     }
   } catch (e) {
     // best-effort at the outer level too — this function must never throw into its caller
+    console.error(`postSlackNotifications failed for owner ${ownerEmail}:`, e);
   }
 }
 
