@@ -1150,6 +1150,103 @@ export default {
       return json({ ok: true });
     }
 
+    if (pathname === "/api/slack/rules" && request.method === "GET") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const { results: rows } = await env.DB.prepare(
+        "SELECT * FROM slack_rules WHERE owner_email = ? ORDER BY id DESC"
+      ).bind(email).all();
+      const { results: goalRows } = await env.DB.prepare("SELECT id FROM goals WHERE owner_email = ?").bind(email).all();
+      const { results: tagRows } = await env.DB.prepare("SELECT id FROM tags WHERE owner_email = ?").bind(email).all();
+      const validGoalIds = new Set(goalRows.map(g => g.id));
+      const validTagIds = new Set(tagRows.map(t => t.id));
+      const rules = rows.map(r => {
+        const goalIds = JSON.parse(r.cond_goal_ids);
+        const tagIds = JSON.parse(r.cond_tag_ids);
+        const missingGoal = goalIds.some(id => !validGoalIds.has(id));
+        const missingTag = tagIds.some(id => !validTagIds.has(id));
+        const orphaned = missingGoal || missingTag;
+        return {
+          id: r.id, name: r.name, enabled: !!r.enabled,
+          cond: {
+            outcome: JSON.parse(r.cond_outcome), severity: JSON.parse(r.cond_severity),
+            realBug: r.cond_real_bug, reachable: r.cond_reachable,
+            goalIds, tagIds,
+          },
+          channelId: r.channel_id, channelName: r.channel_name, dmOwner: !!r.dm_owner,
+          orphaned,
+          orphanReason: orphaned ? (missingGoal && missingTag ? "References a deleted goal and tag" : missingGoal ? "References a deleted goal" : "References a deleted tag") : null,
+        };
+      });
+      return json(rules);
+    }
+
+    if (pathname === "/api/slack/rules" && request.method === "POST") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const body = await request.json().catch(() => ({}));
+      if (!body.name || !String(body.name).trim() || !body.channelId || !body.channelName) {
+        return json({ error: "name and channel are required" }, 400);
+      }
+      const cond = body.cond || {};
+      const result = await env.DB.prepare(
+        `INSERT INTO slack_rules (owner_email, name, enabled, cond_outcome, cond_severity, cond_real_bug, cond_reachable, cond_goal_ids, cond_tag_ids, channel_id, channel_name, dm_owner)
+         VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        email, String(body.name).trim(),
+        JSON.stringify(cond.outcome || []), JSON.stringify(cond.severity || []),
+        cond.realBug || "either", cond.reachable || "either",
+        JSON.stringify(cond.goalIds || []), JSON.stringify(cond.tagIds || []),
+        body.channelId, body.channelName, body.dmOwner ? 1 : 0
+      ).run();
+      return json({ ok: true, id: result.meta.last_row_id });
+    }
+
+    const ruleMatch = pathname.match(/^\/api\/slack\/rules\/(\d+)$/);
+    if (ruleMatch && request.method === "PATCH") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const id = Number(ruleMatch[1]);
+      const owns = await env.DB.prepare("SELECT id FROM slack_rules WHERE id = ? AND owner_email = ?").bind(id, email).first();
+      if (!owns) return json({ error: "not found" }, 404);
+      const body = await request.json().catch(() => ({}));
+      if (!body.name || !String(body.name).trim() || !body.channelId || !body.channelName) {
+        return json({ error: "name and channel are required" }, 400);
+      }
+      const cond = body.cond || {};
+      await env.DB.prepare(
+        `UPDATE slack_rules SET name=?, cond_outcome=?, cond_severity=?, cond_real_bug=?, cond_reachable=?, cond_goal_ids=?, cond_tag_ids=?, channel_id=?, channel_name=?, dm_owner=?, updated_at=datetime('now')
+         WHERE id = ?`
+      ).bind(
+        String(body.name).trim(),
+        JSON.stringify(cond.outcome || []), JSON.stringify(cond.severity || []),
+        cond.realBug || "either", cond.reachable || "either",
+        JSON.stringify(cond.goalIds || []), JSON.stringify(cond.tagIds || []),
+        body.channelId, body.channelName, body.dmOwner ? 1 : 0,
+        id
+      ).run();
+      return json({ ok: true });
+    }
+
+    if (ruleMatch && request.method === "DELETE") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const id = Number(ruleMatch[1]);
+      await env.DB.prepare("DELETE FROM slack_rules WHERE id = ? AND owner_email = ?").bind(id, email).run();
+      return json({ ok: true });
+    }
+
+    const ruleToggleMatch = pathname.match(/^\/api\/slack\/rules\/(\d+)\/toggle$/);
+    if (ruleToggleMatch && request.method === "POST") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const id = Number(ruleToggleMatch[1]);
+      const row = await env.DB.prepare("SELECT enabled FROM slack_rules WHERE id = ? AND owner_email = ?").bind(id, email).first();
+      if (!row) return json({ error: "not found" }, 404);
+      await env.DB.prepare("UPDATE slack_rules SET enabled = ?, updated_at = datetime('now') WHERE id = ?").bind(row.enabled ? 0 : 1, id).run();
+      return json({ ok: true, enabled: !row.enabled });
+    }
+
     if (pathname === "/api/tags" && request.method === "POST") {
       const email = await getSessionEmail(request, env);
       if (!email) return json({ error: "not authenticated" }, 401);
