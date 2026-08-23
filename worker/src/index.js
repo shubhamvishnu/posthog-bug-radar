@@ -439,6 +439,52 @@ async function getLatestReport(db, ownerEmail) {
   };
 }
 
+function slackRuleMatches(task, rule) {
+  const outcome = JSON.parse(rule.cond_outcome);
+  const severity = JSON.parse(rule.cond_severity);
+  const goalIds = JSON.parse(rule.cond_goal_ids);
+  const tagIds = JSON.parse(rule.cond_tag_ids);
+  if (outcome.length && !outcome.includes(task.outcome)) return false;
+  if (severity.length && !severity.includes(task.severity)) return false;
+  if (rule.cond_real_bug !== "either" && (rule.cond_real_bug === "yes") !== !!task.real_bug) return false;
+  if (rule.cond_reachable !== "either" && (rule.cond_reachable === "yes") !== !!task.customer_reachable) return false;
+  if (goalIds.length && !goalIds.includes(task.goal_id)) return false;
+  if (tagIds.length) {
+    const taskTagIds = (task.tags || []).map(t => t.tag_id);
+    if (!tagIds.some(id => taskTagIds.includes(id))) return false;
+  }
+  return true;
+}
+
+async function getRecentTasksForOwner(env, ownerEmail, limit) {
+  const { results: reportRows } = await env.DB.prepare(
+    "SELECT micro_findings, generated_at FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 10"
+  ).bind(ownerEmail).all();
+  const flat = [];
+  for (const row of reportRows) {
+    const findings = JSON.parse(row.micro_findings);
+    for (const f of findings) {
+      for (const t of f.tasks || []) {
+        flat.push({ ...t, _sessionId: f.session_id, _generatedAt: row.generated_at });
+      }
+    }
+  }
+  flat.sort((a, b) => {
+    const ta = a.key_timestamp || a._generatedAt || "";
+    const tb = b.key_timestamp || b._generatedAt || "";
+    return tb.localeCompare(ta);
+  });
+  return flat.slice(0, limit);
+}
+
+function relativeAgeLabel(iso) {
+  if (!iso) return "";
+  const ms = Date.now() - Date.parse(iso.includes("T") ? iso : iso.replace(" ", "T") + "Z");
+  if (Number.isNaN(ms) || ms < 0) return "";
+  const hrs = Math.round(ms / 3600000);
+  return hrs < 24 ? `${hrs}h` : `${Math.round(hrs / 24)}d`;
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -1247,6 +1293,27 @@ export default {
       if (!row) return json({ error: "not found" }, 404);
       await env.DB.prepare("UPDATE slack_rules SET enabled = ?, updated_at = datetime('now') WHERE id = ?").bind(row.enabled ? 0 : 1, id).run();
       return json({ ok: true, enabled: !row.enabled });
+    }
+
+    if (pathname === "/api/slack/dry-run" && request.method === "POST") {
+      const email = await getSessionEmail(request, env);
+      if (!email) return json({ error: "not authenticated" }, 401);
+      const body = await request.json().catch(() => ({}));
+      const cond = body.cond || {};
+      const pseudoRule = {
+        cond_outcome: JSON.stringify(cond.outcome || []),
+        cond_severity: JSON.stringify(cond.severity || []),
+        cond_real_bug: cond.realBug || "either",
+        cond_reachable: cond.reachable || "either",
+        cond_goal_ids: JSON.stringify(cond.goalIds || []),
+        cond_tag_ids: JSON.stringify(cond.tagIds || []),
+      };
+      const tasks = await getRecentTasksForOwner(env, email, 50);
+      const matches = tasks.filter(t => slackRuleMatches(t, pseudoRule));
+      return json({
+        total: matches.length,
+        matches: matches.slice(0, 4).map(t => ({ title: t.title, severity: t.severity || "none", when: relativeAgeLabel(t.key_timestamp || t._generatedAt) })),
+      });
     }
 
     if (pathname === "/api/tags" && request.method === "POST") {
