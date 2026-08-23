@@ -1973,6 +1973,98 @@ function renderSlackConnecting() {
   </div>`;
 }
 
+const SLACK_OUTCOMES = ["completed", "abandoned", "blocked", "unresolved"];
+const SLACK_SEVERITIES = ["high", "medium", "low", "none"];
+const SLACK_OUTCOME_LABEL = { completed: "Completed", abandoned: "Abandoned", blocked: "Blocked", unresolved: "Unresolved" };
+const SLACK_SEVERITY_LABEL = { high: "High", medium: "Medium", low: "Low", none: "None" };
+
+function slackPillStyle(active) {
+  return `font-size:12.5px;font-weight:500;padding:6px 12px;border-radius:8px;border:1px solid ${active ? "var(--accent)" : "var(--border-str)"};color:${active ? "var(--accent)" : "var(--text)"};background:${active ? "color-mix(in srgb,var(--accent) 10%,transparent)" : "var(--bg)"}`;
+}
+function slackSegStyle(active) {
+  return `padding:6px 14px;border-radius:7px;font-size:12.5px;font-weight:${active ? 600 : 500};color:${active ? "var(--text)" : "var(--muted)"};background:${active ? "var(--bg-elev)" : "transparent"};box-shadow:${active ? "0 1px 2px rgba(0,0,0,.1)" : "none"}`;
+}
+function slackGoalChipStyle() {
+  return `display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;line-height:1;padding:5px 9px;border-radius:20px;color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,transparent);border:1px solid color-mix(in srgb,var(--accent) 26%,transparent)`;
+}
+
+function renderSlackConditionsSection() {
+  const b = state.slackBuilder;
+  const outcomeRow = SLACK_OUTCOMES.map(o => `<button data-act="slack-toggle-outcome" data-val="${o}" style="${slackPillStyle(b.cond.outcome.includes(o))}">${SLACK_OUTCOME_LABEL[o]}</button>`).join("");
+  const severityRow = SLACK_SEVERITIES.map(s => `<button data-act="slack-toggle-severity" data-val="${s}" style="${slackPillStyle(b.cond.severity.includes(s))}">${SLACK_SEVERITY_LABEL[s]}</button>`).join("");
+  const realBugRow = [["Yes", "yes"], ["No", "no"], ["Either", "either"]].map(([l, v]) => `<button data-act="slack-set-realbug" data-val="${v}" style="${slackSegStyle(b.cond.realBug === v)}">${l}</button>`).join("");
+  const reachRow = [["Yes", "yes"], ["No", "no"], ["Either", "either"]].map(([l, v]) => `<button data-act="slack-set-reachable" data-val="${v}" style="${slackSegStyle(b.cond.reachable === v)}">${l}</button>`).join("");
+
+  const goalChips = b.cond.goalIds.map(id => {
+    const g = GOALS.find(x => x.id === id);
+    return `<span style="${slackGoalChipStyle()}">${escapeHtml(g ? g.purpose : "deleted goal")}<button data-act="slack-remove-goal" data-id="${id}" style="display:grid;place-items:center;width:14px;height:14px;margin-left:1px;border-radius:50%;color:currentColor;opacity:.55">${ICON_X_TINY}</button></span>`;
+  }).join("");
+  const gq = (state.slackGoalQuery || "").toLowerCase();
+  const goalMatches = GOALS.filter(g => !b.cond.goalIds.includes(g.id) && (gq === "" || g.purpose.toLowerCase().includes(gq)));
+
+  const tagChips = b.cond.tagIds.map(id => {
+    const t = TAGS.find(x => x.id === id);
+    const color = t ? t.color : "var(--accent)";
+    const label = t ? t.label : "deleted tag";
+    return `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;line-height:1;padding:5px 9px;border-radius:20px;color:${escapeHtml(color)};background:color-mix(in srgb,${escapeHtml(color)} 13%,transparent);border:1px solid color-mix(in srgb,${escapeHtml(color)} 28%,transparent)">${escapeHtml(label)}<button data-act="slack-remove-tag" data-id="${id}" style="display:grid;place-items:center;width:14px;height:14px;margin-left:1px;border-radius:50%;color:currentColor;opacity:.55">${ICON_X_TINY}</button></span>`;
+  }).join("");
+  const tq = (state.slackTagQuery || "").toLowerCase();
+  const tagMatches = TAGS.filter(t => !b.cond.tagIds.includes(t.id) && (tq === "" || t.label.toLowerCase().includes(tq)));
+
+  const pickerBox = `display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:42px;padding:7px 10px;border-radius:10px;border:1px solid var(--border-str);background:var(--bg)`;
+
+  return `
+  <div>
+    <label style="display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:7px">Rule name</label>
+    <input id="slackNameInput" value="${escapeHtml(b.name)}" placeholder="e.g. Payments escalations" spellcheck="false" style="width:100%;height:42px;padding:0 13px;border-radius:10px;border:1px solid var(--border-str);background:var(--bg);color:var(--text);font-size:14px;outline:none"/>
+  </div>
+  <div style="margin-top:22px">
+    <div style="font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--faint);text-transform:uppercase;margin-bottom:3px">Conditions</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:15px;line-height:1.5">Leave a group untouched to match <b style="color:var(--text);font-weight:500">any</b> value. Within a group, matches are OR'd; across groups, all must hold.</div>
+    <div style="display:flex;flex-direction:column;gap:16px">
+      <div style="display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:start"><label style="font-size:13px;font-weight:500;padding-top:6px">Outcome</label><div style="display:flex;flex-wrap:wrap;gap:7px">${outcomeRow}</div></div>
+      <div style="display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:start"><label style="font-size:13px;font-weight:500;padding-top:6px">Severity</label><div style="display:flex;flex-wrap:wrap;gap:7px">${severityRow}</div></div>
+      <div style="display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:center"><label style="font-size:13px;font-weight:500">Real bug</label><div style="display:inline-flex;gap:2px;background:var(--bg-sub);border:1px solid var(--border);border-radius:9px;padding:3px;width:fit-content">${realBugRow}</div></div>
+      <div style="display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:center"><label style="font-size:13px;font-weight:500">Customer reachable</label><div style="display:inline-flex;gap:2px;background:var(--bg-sub);border:1px solid var(--border);border-radius:9px;padding:3px;width:fit-content">${reachRow}</div></div>
+      <div style="display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:start"><label style="font-size:13px;font-weight:500;padding-top:6px">Goals</label><div>
+        <div style="${pickerBox}">${goalChips}<input id="slackGoalQueryInput" value="${escapeHtml(state.slackGoalQuery || "")}" placeholder="${b.cond.goalIds.length ? "Add another…" : "Search goals…"}" spellcheck="false" style="flex:1;min-width:120px;height:26px;background:none;border:none;outline:none;color:var(--text);font-size:13px"/></div>
+        ${gq ? `<div style="margin-top:6px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elev);box-shadow:var(--shadow);overflow:hidden;max-height:172px;overflow-y:auto">${goalMatches.length ? goalMatches.map(g => `<button data-act="slack-add-goal" data-id="${g.id}" style="display:flex;align-items:center;gap:9px;width:100%;padding:9px 13px;text-align:left;font-size:13px;border-bottom:1px solid var(--border-soft)">${escapeHtml(g.purpose)}</button>`).join("") : `<div style="padding:10px 13px;font-size:12.5px;color:var(--faint)">No goals match "${escapeHtml(state.slackGoalQuery)}".</div>`}</div>` : ""}
+      </div></div>
+      <div style="display:grid;grid-template-columns:130px 1fr;gap:14px;align-items:start"><label style="font-size:13px;font-weight:500;padding-top:6px">Tags</label><div>
+        <div style="${pickerBox}">${tagChips}<input id="slackTagQueryInput" value="${escapeHtml(state.slackTagQuery || "")}" placeholder="${b.cond.tagIds.length ? "Add another…" : "Search tags…"}" spellcheck="false" style="flex:1;min-width:120px;height:26px;background:none;border:none;outline:none;color:var(--text);font-size:13px"/></div>
+        ${tq ? `<div style="margin-top:6px;border:1px solid var(--border);border-radius:10px;background:var(--bg-elev);box-shadow:var(--shadow);overflow:hidden;max-height:172px;overflow-y:auto">${tagMatches.length ? tagMatches.map(t => `<button data-act="slack-add-tag" data-id="${t.id}" style="display:flex;align-items:center;gap:9px;width:100%;padding:9px 13px;text-align:left;font-size:13px;border-bottom:1px solid var(--border-soft)"><span style="width:9px;height:9px;border-radius:3px;flex:none;background:${escapeHtml(t.color)}"></span>${escapeHtml(t.label)}</button>`).join("") : `<div style="padding:10px 13px;font-size:12.5px;color:var(--faint)">No tags match "${escapeHtml(state.slackTagQuery)}".</div>`}</div>` : ""}
+      </div></div>
+    </div>
+  </div>`;
+}
+
+function renderSlackBuilderModal() {
+  const b = state.slackBuilder;
+  if (!b) return "";
+  return `
+  <div class="modal-overlay top" data-act="slack-close-builder">
+    <div class="modal-card" data-act="slack-stop" style="width:640px;max-width:100%;margin:auto;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:12px;padding:18px 22px;border-bottom:1px solid var(--border)">
+        <span style="width:32px;height:32px;flex:none;border-radius:9px;background:var(--bg-sub);border:1px solid var(--border);display:grid;place-items:center">${SLACK_MARK_SVG(17)}</span>
+        <div style="font-size:15.5px;font-weight:700;letter-spacing:-.01em">${b.mode === "edit" ? "Edit rule" : "New rule"}</div>
+        <button data-act="slack-close-builder" title="Close" style="margin-left:auto;width:30px;height:30px;border-radius:8px;display:grid;place-items:center;color:var(--faint)">${ICON_X_TINY}</button>
+      </div>
+      <div style="padding:22px;display:flex;flex-direction:column;gap:22px;max-height:70vh;overflow-y:auto">
+        ${renderSlackConditionsSection()}
+        <div style="height:1px;background:var(--border)"></div>
+        <div id="slack-destination-slot">${typeof renderSlackDestinationSection === "function" ? renderSlackDestinationSection() : ""}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:16px 22px;border-top:1px solid var(--border);background:var(--bg-sub)">
+        <span style="font-size:12px;color:var(--faint)">Saving activates this rule right away.</span>
+        <div style="margin-left:auto;display:flex;gap:9px">
+          <button data-act="slack-close-builder" style="padding:9px 15px;border-radius:9px;font-size:13px;font-weight:500;color:var(--text);border:1px solid var(--border-str)">Cancel</button>
+          ${typeof slackSaveButtonHtml === "function" ? slackSaveButtonHtml() : ""}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
 function renderSlackTab() {
   if (state.slackConnecting) return renderSlackConnecting();
   if (!SLACK_STATUS.connected && SLACK_STATUS.status !== "disconnected") return renderSlackNotConnected();
@@ -2088,6 +2180,13 @@ function renderSlackConnectedShell() {
   </div>` : ""}`;
 }
 
+function slackTogglePillCond(key, val) {
+  const arr = state.slackBuilder.cond[key];
+  state.slackBuilder.cond[key] = arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
+  render();
+  if (typeof runSlackDryRun === "function") runSlackDryRun();
+}
+
 function renderKnowledgeTab() {
   return `
   <div class="section-label" style="margin-bottom:4px">COMPANY KNOWLEDGE</div>
@@ -2185,6 +2284,7 @@ function render() {
       <main class="main">${isHome ? renderHome() : renderMainContent()}</main>
     </div>
     ${state.toast ? `<div class="toast">${ICON_CHECKMARK}${escapeHtml(state.toast)}</div>` : ""}
+    ${state.slackBuilder ? renderSlackBuilderModal() : ""}
   `;
   syncProfileMenu();
 }
@@ -2334,6 +2434,30 @@ document.addEventListener("click", e => {
       if (res.ok) { SLACK_RULES = await (await fetch("/api/slack/rules")).json(); flash("Rule deleted"); render(); }
     });
   }
+  else if (act === "slack-new-rule") {
+    state.slackBuilder = { id: null, name: "", cond: { outcome: [], severity: [], realBug: "either", reachable: "either", goalIds: [], tagIds: [] }, channelId: null, channelName: null, dmOwner: false, mode: "new" };
+    state.slackGoalQuery = ""; state.slackTagQuery = ""; state.slackChannelQuery = ""; state.slackChannels = null; state.slackDryRun = null;
+    render();
+    if (typeof loadSlackChannelsForBuilder === "function") loadSlackChannelsForBuilder();
+  }
+  else if (act === "slack-rule-edit") {
+    const rule = SLACK_RULES.find(r => r.id === Number(el.dataset.id));
+    if (!rule) return;
+    state.slackBuilder = { id: rule.id, name: rule.name, cond: JSON.parse(JSON.stringify(rule.cond)), channelId: rule.channelId, channelName: rule.channelName, dmOwner: rule.dmOwner, mode: "edit" };
+    state.slackGoalQuery = ""; state.slackTagQuery = ""; state.slackChannelQuery = ""; state.slackChannels = null; state.slackDryRun = null;
+    render();
+    if (typeof loadSlackChannelsForBuilder === "function") loadSlackChannelsForBuilder();
+    if (typeof runSlackDryRun === "function") runSlackDryRun();
+  }
+  else if (act === "slack-close-builder") { state.slackBuilder = null; render(); }
+  else if (act === "slack-toggle-outcome") { slackTogglePillCond("outcome", el.dataset.val); }
+  else if (act === "slack-toggle-severity") { slackTogglePillCond("severity", el.dataset.val); }
+  else if (act === "slack-set-realbug") { state.slackBuilder.cond.realBug = el.dataset.val; render(); if (typeof runSlackDryRun === "function") runSlackDryRun(); }
+  else if (act === "slack-set-reachable") { state.slackBuilder.cond.reachable = el.dataset.val; render(); if (typeof runSlackDryRun === "function") runSlackDryRun(); }
+  else if (act === "slack-remove-goal") { state.slackBuilder.cond.goalIds = state.slackBuilder.cond.goalIds.filter(id => id !== Number(el.dataset.id)); render(); if (typeof runSlackDryRun === "function") runSlackDryRun(); }
+  else if (act === "slack-remove-tag") { state.slackBuilder.cond.tagIds = state.slackBuilder.cond.tagIds.filter(id => id !== Number(el.dataset.id)); render(); if (typeof runSlackDryRun === "function") runSlackDryRun(); }
+  else if (act === "slack-add-goal") { state.slackBuilder.cond.goalIds = [...state.slackBuilder.cond.goalIds, Number(el.dataset.id)]; state.slackGoalQuery = ""; render(); if (typeof runSlackDryRun === "function") runSlackDryRun(); }
+  else if (act === "slack-add-tag") { state.slackBuilder.cond.tagIds = [...state.slackBuilder.cond.tagIds, Number(el.dataset.id)]; state.slackTagQuery = ""; render(); if (typeof runSlackDryRun === "function") runSlackDryRun(); }
   else if (act === "conn-start") { connStart(); }
   else if (act === "conn-cancel") { connCancel(); }
   else if (act === "conn-run") { connRun(); }
@@ -2413,6 +2537,10 @@ document.addEventListener("input", e => {
     else if (inner.target.id === "goalDescInput") { state.goalDesc = inner.target.value; }
     else if (inner.target.id === "goalTagsInput") { state.goalTags = inner.target.value; }
     else if (inner.target.id === "tagLabelInput") { state.tagLabel = inner.target.value; }
+    else if (inner.target.id === "slackNameInput" && state.slackBuilder) { state.slackBuilder.name = inner.target.value; }
+    else if (inner.target.id === "slackGoalQueryInput") { state.slackGoalQuery = inner.target.value; }
+    else if (inner.target.id === "slackTagQueryInput") { state.slackTagQuery = inner.target.value; }
+    else if (inner.target.id === "slackChannelQueryInput") { state.slackChannelQuery = inner.target.value; }
   })(e);
 });
 
