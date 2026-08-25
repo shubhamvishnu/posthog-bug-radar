@@ -97,13 +97,23 @@ export default {
       const ok = !!saltHex && !!expectedHashHex && timingSafeEqual(candidateHashHex, expectedHashHex);
 
       if (!ok) {
-        const failedCount = (attemptRow?.failed_count || 0) + 1;
-        const lockedUntil = failedCount >= 5 ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
-        await env.DB.prepare(
+        // Atomic increment: failed_count is computed in SQL (failed_count + 1), not from the
+        // attemptRow SELECT'd above, so concurrent requests each get their own correctly
+        // incremented count instead of all reading the same stale value. RETURNING hands back
+        // the post-increment count for the locked_until decision below.
+        const incremented = await env.DB.prepare(
           `INSERT INTO admin_login_attempts (email, failed_count, locked_until, updated_at)
-           VALUES (?, ?, ?, datetime('now'))
-           ON CONFLICT(email) DO UPDATE SET failed_count = ?, locked_until = ?, updated_at = datetime('now')`
-        ).bind(email, failedCount, lockedUntil, failedCount, lockedUntil).run();
+           VALUES (?, 1, NULL, datetime('now'))
+           ON CONFLICT(email) DO UPDATE SET failed_count = failed_count + 1, updated_at = datetime('now')
+           RETURNING failed_count`
+        ).bind(email).first();
+        const failedCount = incremented.failed_count;
+        if (failedCount >= 5) {
+          const lockedUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+          await env.DB.prepare(
+            "UPDATE admin_login_attempts SET locked_until = ? WHERE email = ?"
+          ).bind(lockedUntil, email).run();
+        }
         return json({ error: "Incorrect email or password." }, 401);
       }
 
@@ -365,7 +375,8 @@ export default {
         }
       }
       sessions.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
-      return json({ sessions: sessions.slice(0, limit), scanned_reports: reportRows.length });
+      const total_sessions = sessions.length;
+      return json({ sessions: sessions.slice(0, limit), scanned_reports: reportRows.length, total_sessions });
     }
 
     const sessionDetailMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);

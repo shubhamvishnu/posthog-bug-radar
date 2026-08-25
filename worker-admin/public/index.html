@@ -145,6 +145,7 @@ let USERS = [];
 let USER_DETAIL = null;
 let SESSIONS = [];
 let SESSIONS_SCANNED = 0;
+let TOTAL_SESSIONS = 0;
 let SESSION_DETAIL = null;
 let CONNECTIONS = [];
 let GOALS = []; let GOALS_TOTAL = 0;
@@ -195,7 +196,7 @@ async function loadUsers() {
 
 async function loadSessions() {
   const res = await fetch("/api/sessions?limit=200");
-  if (res.ok) { const data = await res.json(); SESSIONS = data.sessions; SESSIONS_SCANNED = data.scanned_reports; }
+  if (res.ok) { const data = await res.json(); SESSIONS = data.sessions; SESSIONS_SCANNED = data.scanned_reports; TOTAL_SESSIONS = data.total_sessions; }
   // The nav click handler calls render() synchronously right after kicking this off, so on the
   // very first visit to Sessions (nothing preloaded it, unlike Tenants via init()) that render
   // paints before this fetch resolves and nothing repaints it — re-render once data lands.
@@ -268,11 +269,13 @@ function renderUsersTable() {
     </button>`).join("");
   return `
   <div class="pageheader"><span class="title">Tenants</span><span class="count">${USERS.length}</span></div>
-  <div class="panel">
-    <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:12px;padding:10px 0;font-size:11px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.03em">
-      <span>Email</span><span>Signed up</span><span>Connections</span><span>Last activity</span><span>Slack</span>
+  <div class="content contentpad">
+    <div class="panel">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:12px;padding:10px 0;font-size:11px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.03em">
+        <span>Email</span><span>Signed up</span><span>Connections</span><span>Last activity</span><span>Slack</span>
+      </div>
+      ${rows || `<div class="empty-note">No users yet.</div>`}
     </div>
-    ${rows || `<div class="empty-note">No users yet.</div>`}
   </div>`;
 }
 
@@ -482,20 +485,26 @@ function renderTenantSlackSection() {
 }
 
 function renderUserDetail() {
-  if (!USER_DETAIL) return `<div class="empty-note">Loading…</div>`;
+  if (!USER_DETAIL) return `<div class="pageheader"><button class="crumb" data-act="nav" data-view="tenants">Tenants</button></div><div class="content contentpad"><div class="empty-note">Loading…</div></div>`;
   const u = USER_DETAIL;
   const connections = u.connections || [];
   return `
-  <button data-act="nav" data-view="tenants" style="font-size:13px;color:var(--muted);margin-bottom:14px;display:inline-block">&larr; Tenants</button>
-  <div style="font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:2px">${escapeHtml(u.user.email)}</div>
-  <div style="font-size:12.5px;color:var(--muted);margin-bottom:22px">Signed up ${escapeHtml(String(u.user.created_at || "").slice(0, 10))}</div>
-  <div class="section-title">Connections<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${connections.length}</span></div>
-  ${connections.length ? connections.map(renderConnectionCard).join("") : `<div class="panel"><div class="empty-note">No connections yet.</div></div>`}
-  <div style="margin-top:24px">${renderTenantSlackSection()}</div>
-  <div style="margin-top:24px">${renderLatestReportSection()}</div>
-  <div style="margin-top:24px">${renderGoalsLibrary()}</div>
-  <div style="margin-top:24px">${renderTagsLibrary()}</div>
-  <div style="margin-top:24px">${renderCorrectionsTable()}</div>`;
+  <div class="pageheader">
+    <button class="crumb" data-act="nav" data-view="tenants">Tenants</button>
+    <span class="sep">/</span>
+    <span class="idmono">${escapeHtml(u.user.email)}</span>
+  </div>
+  <div class="content contentpad">
+    <div style="font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:2px">${escapeHtml(u.user.email)}</div>
+    <div style="font-size:12.5px;color:var(--muted);margin-bottom:22px">Signed up ${escapeHtml(String(u.user.created_at || "").slice(0, 10))}</div>
+    <div class="section-title">Connections<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${connections.length}</span></div>
+    ${connections.length ? connections.map(renderConnectionCard).join("") : `<div class="panel"><div class="empty-note">No connections yet.</div></div>`}
+    <div style="margin-top:24px">${renderTenantSlackSection()}</div>
+    <div style="margin-top:24px">${renderLatestReportSection()}</div>
+    <div style="margin-top:24px">${renderGoalsLibrary()}</div>
+    <div style="margin-top:24px">${renderTagsLibrary()}</div>
+    <div style="margin-top:24px">${renderCorrectionsTable()}</div>
+  </div>`;
 }
 
 function renderOverview() {
@@ -542,7 +551,7 @@ function renderSessionsScreen() {
   <div class="list-subhead"><span style="flex:1">Owner / session</span><span style="width:90px">Worst severity</span><span style="width:70px">Bugs</span><span style="width:90px;text-align:right">Date</span></div>
   <div class="content">
     ${rows || `<div class="empty-note">No sessions yet.</div>`}
-    <div class="empty-note">Showing latest ${SESSIONS.length} of the most recent ${SESSIONS_SCANNED} report rows scanned.</div>
+    ${SESSIONS.length > 0 ? `<div class="empty-note">Showing latest ${SESSIONS.length} of ${TOTAL_SESSIONS} sessions found (scanned the most recent ${SESSIONS_SCANNED} report rows).</div>` : ""}
   </div>`;
 }
 
@@ -724,11 +733,11 @@ function renderSidebar() {
     <nav class="side-nav">
       <button class="nav-item${v === "overview" ? " active" : ""}" data-act="nav" data-view="overview">${ICON_ACTIVITY}<span class="lbl">Overview</span></button>
       <button class="nav-item${isTenants ? " active" : ""}" data-act="nav" data-view="tenants">${ICON_PEOPLE}<span class="lbl">Tenants</span></button>
+      <button class="nav-item${v === "sessions" || v === "session-detail" ? " active" : ""}" data-act="nav" data-view="sessions">${ICON_SESSIONS}<span class="lbl">Sessions</span></button>
       <button class="nav-item${v === "integrations" ? " active" : ""}" data-act="nav" data-view="integrations">${ICON_PLUG}<span class="lbl">Integrations</span></button>
       <button class="nav-item${v === "goals" ? " active" : ""}" data-act="nav" data-view="goals">${ICON_TARGET}<span class="lbl">Goals</span></button>
       <button class="nav-item${v === "tags" ? " active" : ""}" data-act="nav" data-view="tags">${ICON_TAG}<span class="lbl">Tags</span></button>
       <button class="nav-item${v === "slack" ? " active" : ""}" data-act="nav" data-view="slack">${SLACK_MARK_SVG(16)}<span class="lbl">Slack</span></button>
-      <button class="nav-item${v === "sessions" || v === "session-detail" ? " active" : ""}" data-act="nav" data-view="sessions">${ICON_SESSIONS}<span class="lbl">Sessions</span></button>
       <button class="nav-item${v === "events" ? " active" : ""}" data-act="nav" data-view="events">${ICON_ACTIVITY_EVENTS}<span class="lbl">Events</span></button>
     </nav>
     <div class="side-bottom">
@@ -801,6 +810,14 @@ async function logout() {
   EVENTS = [];
   USER_DETAIL = null;
   SLACK_TENANTS = [];
+  SESSIONS = [];
+  SESSIONS_SCANNED = 0;
+  TOTAL_SESSIONS = 0;
+  SESSION_DETAIL = null;
+  CONNECTIONS = [];
+  GOALS = []; GOALS_TOTAL = 0;
+  TAGS = []; TAGS_TOTAL = 0;
+  state.view = "overview";
   loginState.email = "";
   loginState.password = "";
   render();
