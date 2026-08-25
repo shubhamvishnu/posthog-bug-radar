@@ -328,6 +328,16 @@ export default {
       return json({ tags, total });
     }
 
+    if (pathname === "/api/slack" && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const { results } = await env.DB.prepare(
+        `SELECT sc.owner_email, sc.team_name, sc.status,
+                (SELECT COUNT(*) FROM slack_rules sr WHERE sr.owner_email = sc.owner_email) as rule_count
+         FROM slack_connections sc ORDER BY sc.connected_at DESC`
+      ).all();
+      return json({ tenants: results });
+    }
+
     if (pathname === "/api/sessions" && request.method === "GET") {
       if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
       const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 200, 200));
