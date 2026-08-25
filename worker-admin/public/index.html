@@ -146,6 +146,7 @@ let USER_DETAIL = null;
 let SESSIONS = [];
 let SESSIONS_SCANNED = 0;
 let SESSION_DETAIL = null;
+let CONNECTIONS = [];
 
 const AUDIT_STATUS_VAR = { success: "var(--oc-done)", warning: "var(--sev-med)", error: "var(--sev-high)", info: "var(--faint)" };
 const AUDIT_KIND_LABEL = { connection_established: "Connection established", settings_changed: "Settings changed", resync: "Re-sync", sync_completed: "Sync completed", sync_failed: "Sync failed" };
@@ -196,6 +197,11 @@ async function loadSessions() {
   // very first visit to Sessions (nothing preloaded it, unlike Tenants via init()) that render
   // paints before this fetch resolves and nothing repaints it — re-render once data lands.
   render();
+}
+
+async function loadConnections() {
+  const res = await fetch("/api/connections");
+  if (res.ok) CONNECTIONS = (await res.json()).connections;
 }
 
 async function openSession(sessionId, ownerEmail) {
@@ -515,6 +521,26 @@ function renderSessionsScreen() {
   </div>`;
 }
 
+function renderIntegrationsScreen() {
+  const rows = CONNECTIONS.map(c => `
+    <button class="list-row" data-act="open-user" data-email="${escapeHtml(c.owner_email)}">
+      <span class="col-user">
+        <span class="avatar">${escapeHtml((c.owner_email || "?")[0].toUpperCase())}</span>
+        <span style="min-width:0;overflow:hidden;display:flex;align-items:baseline;gap:8px">
+          <span class="nm">${escapeHtml(c.owner_email)}</span>
+          <span class="meta">${escapeHtml(c.project_name || "")}</span>
+        </span>
+      </span>
+      <span style="width:100px"><span style="padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;${connChipStyle(c.status)}">${escapeHtml(c.status)}</span></span>
+      <span style="width:200px;color:var(--sev-high);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.last_error || "")}</span>
+      <span style="width:110px;text-align:right;color:var(--faint)">${c.last_synced_at ? escapeHtml(String(c.last_synced_at).slice(0, 10)) : "never"}</span>
+    </button>`).join("");
+  return `
+  <div class="pageheader"><span class="title">Integrations</span><span class="count">${CONNECTIONS.length}</span></div>
+  <div class="list-subhead"><span style="flex:1">Owner / project</span><span style="width:100px">Status</span><span style="width:200px">Last error</span><span style="width:110px;text-align:right">Last synced</span></div>
+  <div class="content">${rows || `<div class="empty-note">No connections yet.</div>`}</div>`;
+}
+
 function renderSessionDetailScreen() {
   if (!SESSION_DETAIL) return `<div class="pageheader"><button class="crumb" data-act="nav" data-view="sessions">Sessions</button></div><div class="content contentpad"><div class="empty-note">Loading…</div></div>`;
   const ctx = { tags: SESSION_DETAIL.tags || [], goals: SESSION_DETAIL.goals || [] };
@@ -587,6 +613,7 @@ function renderMainContent() {
     case "overview": return renderOverview();
     case "tenants": return renderUsersTable();
     case "user-detail": return renderUserDetail();
+    case "integrations": return renderIntegrationsScreen();
     case "events": return renderEventsScreen();
     case "sessions": return renderSessionsScreen();
     case "session-detail": return renderSessionDetailScreen();
@@ -608,6 +635,7 @@ function renderSidebar() {
     <nav class="side-nav">
       <button class="nav-item${v === "overview" ? " active" : ""}" data-act="nav" data-view="overview">${ICON_ACTIVITY}<span class="lbl">Overview</span></button>
       <button class="nav-item${isTenants ? " active" : ""}" data-act="nav" data-view="tenants">${ICON_PEOPLE}<span class="lbl">Tenants</span></button>
+      <button class="nav-item${v === "integrations" ? " active" : ""}" data-act="nav" data-view="integrations">${ICON_PLUG}<span class="lbl">Integrations</span></button>
       <button class="nav-item${v === "sessions" || v === "session-detail" ? " active" : ""}" data-act="nav" data-view="sessions">${ICON_SESSIONS}<span class="lbl">Sessions</span></button>
       <button class="nav-item${v === "events" ? " active" : ""}" data-act="nav" data-view="events">${ICON_ACTIVITY_EVENTS}<span class="lbl">Events</span></button>
     </nav>
@@ -641,6 +669,7 @@ document.addEventListener("click", e => {
   else if (act === "nav") {
     state.view = el.dataset.view;
     if (el.dataset.view === "tenants" && !USERS.length) loadUsers();
+    if (el.dataset.view === "integrations" && !CONNECTIONS.length) loadConnections();
     if (el.dataset.view === "sessions" && !SESSIONS.length) loadSessions();
     render();
   }

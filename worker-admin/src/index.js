@@ -298,6 +298,15 @@ export default {
       return json({ report_history });
     }
 
+    if (pathname === "/api/connections" && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const { results } = await env.DB.prepare(
+        `SELECT id, owner_email, project_name, status, last_error, last_synced_at, sync_freq
+         FROM connections ORDER BY (last_error IS NOT NULL) DESC, id DESC`
+      ).all();
+      return json({ connections: results });
+    }
+
     if (pathname === "/api/sessions" && request.method === "GET") {
       if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
       const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 200, 200));
