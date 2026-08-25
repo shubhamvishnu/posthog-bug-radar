@@ -170,8 +170,8 @@ permanent source of truth):
 | Provider | Curated options | Default |
 |---|---|---|
 | Anthropic | `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5` | `claude-opus-5` |
-| OpenAI | `gpt-5.6` (flagship, alias for `gpt-5.6-sol`), `gpt-5.6-terra`, `gpt-5.6-luna` | `gpt-5.6` |
-| Gemini | `gemini-3.1-pro`, `gemini-3.7-flash`, `gemini-3.5-flash` | `gemini-3.1-pro` |
+| OpenAI | `gpt-5.6-sol` (flagship, alias for `gpt-5.6-sol`), `gpt-5.6-terra`, `gpt-5.6-luna` | `gpt-5.6-sol` |
+| Gemini | `gemini-3.1-pro-preview`, `gemini-3.7-flash`, `gemini-3.5-flash` | `gemini-3.1-pro-preview` |
 
 Each dropdown's last option is "Other (custom)", revealing a free-text
 field — so a model released after this list was written is never a

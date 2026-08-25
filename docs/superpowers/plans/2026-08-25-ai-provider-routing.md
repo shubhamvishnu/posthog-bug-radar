@@ -20,8 +20,8 @@
 - A tenant with no `tenant_ai_config` row must resolve to exactly today's behavior: Anthropic, session-first, model = `ai_provider_defaults`'s `anthropic` row's `default_model`. Shipping this feature must not change behavior for any tenant nobody has explicitly reconfigured.
 - Model catalog (curated dropdown lists, verified current 2026-08-25):
   - Anthropic: `claude-opus-5`, `claude-sonnet-5`, `claude-haiku-4-5` — default `claude-opus-5`
-  - OpenAI: `gpt-5.6`, `gpt-5.6-terra`, `gpt-5.6-luna` — default `gpt-5.6`
-  - Gemini: `gemini-3.1-pro`, `gemini-3.7-flash`, `gemini-3.5-flash` — default `gemini-3.1-pro`
+  - OpenAI: `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` — default `gpt-5.6-sol`
+  - Gemini: `gemini-3.1-pro-preview`, `gemini-3.7-flash`, `gemini-3.5-flash` — default `gemini-3.1-pro-preview`
 - Current worker-admin sidebar order: Overview, Tenants, Sessions, Integrations, Goals, Tags, Slack, Events. The new "AI Providers" screen is inserted after Slack, before Events.
 
 ---
@@ -171,7 +171,7 @@ function enc(plaintext, keyB64) {
   return { ciphertext: Buffer.concat([ciphertext, tag]).toString("base64"), iv: iv.toString("base64") };
 }
 const keyB64 = process.env.CONNECTION_ENCRYPTION_KEY_B64; // pass in separately, do not hardcode
-for (const [provider, plaintext, model] of [["anthropic","placeholder-anthropic-key","claude-opus-5"],["openai","placeholder-openai-key","gpt-5.6"],["gemini","placeholder-gemini-key","gemini-3.1-pro"]]) {
+for (const [provider, plaintext, model] of [["anthropic","placeholder-anthropic-key","claude-opus-5"],["openai","placeholder-openai-key","gpt-5.6-sol"],["gemini","placeholder-gemini-key","gemini-3.1-pro-preview"]]) {
   const { ciphertext, iv } = enc(plaintext, keyB64);
   console.log(`INSERT INTO ai_provider_defaults (provider, encrypted_api_key, iv, default_model) VALUES ('${provider}', '${ciphertext}', '${iv}', '${model}') ON CONFLICT(provider) DO UPDATE SET encrypted_api_key=excluded.encrypted_api_key, iv=excluded.iv, default_model=excluded.default_model;`);
 }
@@ -488,8 +488,8 @@ Add near the top of the `<script>` block, alongside other constants like `SEV_VA
 ```js
 const AI_MODEL_CATALOG = {
   anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
-  openai: ["gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"],
-  gemini: ["gemini-3.1-pro", "gemini-3.7-flash", "gemini-3.5-flash"],
+  openai: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+  gemini: ["gemini-3.1-pro-preview", "gemini-3.7-flash", "gemini-3.5-flash"],
 };
 const AI_PROVIDER_LABEL = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" };
 ```
@@ -952,11 +952,11 @@ Expected: `{"provider":"anthropic","model":"claude-opus-5","api_key":"...","use_
 
 - [ ] **Step 3: Route one real tenant to a non-Anthropic provider and run the pipeline**
 
-Via the admin portal's Tenant Detail AI Routing section, switch one real tenant (e.g. the `dreamteam` connection) to Gemini with `gemini-3.1-pro`. Then run:
+Via the admin portal's Tenant Detail AI Routing section, switch one real tenant (e.g. the `dreamteam` connection) to Gemini with `gemini-3.1-pro-preview`. Then run:
 ```bash
 python3 bug_radar.py --session-id <a known real session_id for that tenant>
 ```
-Expected: the `[llm] routing through gemini / gemini-3.1-pro for ...` log line appears, the run completes without error, and the resulting report is valid JSON with the expected task shape (same as any other successful run).
+Expected: the `[llm] routing through gemini / gemini-3.1-pro-preview for ...` log line appears, the run completes without error, and the resulting report is valid JSON with the expected task shape (same as any other successful run).
 
 - [ ] **Step 4: Confirm the Anthropic session-to-API fallback**
 
