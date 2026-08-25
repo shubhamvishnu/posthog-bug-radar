@@ -49,15 +49,6 @@ html[data-theme="dark"]{
 .login-error{display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--accent);font-size:12.5px}
 .login-primary-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:44px;margin-top:16px;border-radius:11px;background:var(--accent);color:var(--accent-fg);font-size:14px;font-weight:600}
 .login-primary-btn.disabled{opacity:.45;pointer-events:none}
-.otp-back{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);margin-bottom:18px}
-.otp-cells{display:flex;gap:8px;margin:18px 0 4px}
-.otp-cell{width:44px;height:52px;text-align:center;font-size:21px;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--text);background:var(--bg-sub);border:1px solid var(--border-str);border-radius:11px;outline:none}
-.otp-cell.filled{border-color:var(--accent)}
-.otp-cell.err{border-color:var(--accent)}
-.otp-verify-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:44px;margin-top:20px;border-radius:11px;background:var(--accent);color:var(--accent-fg);font-size:14px;font-weight:600}
-.otp-verify-btn.disabled{opacity:.45;pointer-events:none}
-.otp-resend-row{text-align:center;margin-top:16px;font-size:13px;color:var(--muted)}
-.otp-resend-row button{color:var(--accent);font-weight:500}
 .spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:spin .7s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -88,7 +79,7 @@ function safeColor(c) { return /^#[0-9a-f]{6}$/i.test(c || "") ? c : "#64748b"; 
 function getTheme() { return localStorage.getItem("bra_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }
 
 const AUTH = { email: null };
-const loginState = { step: "email", email: "", sending: false, emailError: "", otp: ["", "", "", "", "", ""], otpError: "", verifying: false, resendIn: 0 };
+const loginState = { email: "", password: "", error: "", submitting: false };
 const state = { view: "overview", selUserEmail: null, expandedTask: {}, expandedMoments: {} };
 
 let OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {} };
@@ -372,158 +363,53 @@ function renderOverview() {
   </div>`;
 }
 
-/* ---------------- login (ported two-step flow) ---------------- */
-async function submitLoginEmail(e) {
+/* ---------------- login (password-based) ---------------- */
+async function submitLogin(e) {
   e.preventDefault();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginState.email)) {
-    loginState.emailError = "Enter a valid email address.";
-    render();
-    return;
-  }
-  loginState.emailError = "";
-  loginState.sending = true;
+  loginState.error = "";
+  loginState.submitting = true;
   render();
   try {
-    const res = await fetch("/api/auth/request-otp", {
+    const res = await fetch("/api/auth/login", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: loginState.email }),
+      body: JSON.stringify({ email: loginState.email, password: loginState.password }),
     });
     const data = await res.json().catch(() => ({}));
-    loginState.sending = false;
-    if (!res.ok) { loginState.emailError = data.error || "Something went wrong. Try again."; render(); return; }
-    loginState.step = "otp";
-    loginState.otp = ["", "", "", "", "", ""];
-    loginState.otpError = "";
-    render();
-    startResendTimer();
-  } catch (e) {
-    loginState.sending = false;
-    loginState.emailError = "Network error. Try again.";
-    render();
-  }
-}
-
-async function verifyLoginOtp() {
-  const code = loginState.otp.join("");
-  if (code.length !== 6) return;
-  loginState.verifying = true;
-  render();
-  try {
-    const res = await fetch("/api/auth/verify-otp", {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: loginState.email, code }),
-    });
-    const data = await res.json().catch(() => ({}));
-    loginState.verifying = false;
-    if (!res.ok) {
-      loginState.otpError = data.error || "That code doesn't match.";
-      loginState.otp = ["", "", "", "", "", ""];
-      render();
-      return;
-    }
+    loginState.submitting = false;
+    if (!res.ok) { loginState.error = data.error || "Something went wrong. Try again."; render(); return; }
     AUTH.email = data.email;
     await loadOverview();
     await loadUsers();
     render();
-  } catch (e) {
-    loginState.verifying = false;
-    loginState.otpError = "Network error. Try again.";
+  } catch (err) {
+    loginState.submitting = false;
+    loginState.error = "Network error. Try again.";
     render();
   }
 }
 
-function backToLoginEmail() {
-  loginState.step = "email";
-  loginState.otpError = "";
-  render();
-}
-
-let resendTimer = null;
-function startResendTimer() {
-  loginState.resendIn = 30;
-  clearInterval(resendTimer);
-  resendTimer = setInterval(() => {
-    loginState.resendIn -= 1;
-    if (loginState.resendIn <= 0) { clearInterval(resendTimer); loginState.resendIn = 0; }
-    const row = document.getElementById("otpResendRow");
-    if (row) row.innerHTML = otpResendRowHtml();
-  }, 1000);
-}
-
-function otpResendRowHtml() {
-  const s = loginState;
-  return s.resendIn <= 0
-    ? `Didn't get it? <button data-act="otp-resend">Resend code</button>`
-    : `Resend code in ${s.resendIn}s`;
-}
-
-function onOtpInput(i, val) {
-  const digit = val.replace(/\D/g, "").slice(-1);
-  const otp = loginState.otp.slice();
-  otp[i] = digit;
-  loginState.otp = otp;
-  loginState.otpError = "";
-  render();
-  if (digit) {
-    const next = document.getElementById("otp-" + (i + 1));
-    if (next) next.focus();
-  } else {
-    const cur = document.getElementById("otp-" + i);
-    if (cur) cur.focus();
-  }
-}
-
-function onOtpKeydown(i, e) {
-  if (e.key === "Backspace" && !loginState.otp[i] && i > 0) {
-    const prev = document.getElementById("otp-" + (i - 1));
-    if (prev) prev.focus();
-  }
-}
-
-function renderLoginEmailStep() {
-  const s = loginState;
-  return `
-  <div>
-    <div class="login-title">Bug Radar Admin</div>
-    <div class="login-subtitle">Sign in with the admin account.</div>
-    <form id="loginEmailForm">
-      <label class="login-label">Email</label>
-      <div class="login-field${s.emailError ? " err" : ""}">
-        <input id="loginEmailInput" type="email" placeholder="you@company.com" autocomplete="email" value="${escapeHtml(s.email)}"/>
-      </div>
-      ${s.emailError ? `<div class="login-error">${escapeHtml(s.emailError)}</div>` : ""}
-      <button type="submit" class="login-primary-btn${s.sending ? " disabled" : ""}">
-        ${s.sending ? `<span class="spinner"></span>` : `<span>Send login code</span>`}
-      </button>
-    </form>
-  </div>`;
-}
-
-function renderLoginOtpStep() {
-  const s = loginState;
-  const complete = s.otp.join("").length === 6;
-  return `
-  <div>
-    <button class="otp-back" data-act="otp-back">&larr; Back</button>
-    <div class="login-title">Check your inbox</div>
-    <div class="login-subtitle">We sent a 6-digit code to <b style="color:var(--text);font-weight:500">${escapeHtml(s.email)}</b>.</div>
-    <div class="otp-cells">
-      ${s.otp.map((d, i) => `<input class="otp-cell${s.otpError ? " err" : (d ? " filled" : "")}" id="otp-${i}" data-otp-index="${i}" inputmode="numeric" maxlength="1" value="${escapeHtml(d)}"/>`).join("")}
-    </div>
-    ${s.otpError ? `<div class="login-error">${escapeHtml(s.otpError)}</div>` : ""}
-    <button class="otp-verify-btn${complete ? "" : " disabled"}" data-act="otp-verify">
-      ${s.verifying ? `<span class="spinner"></span>` : `<span>Verify &amp; continue</span>`}
-    </button>
-    <div class="otp-resend-row" id="otpResendRow">${otpResendRowHtml()}</div>
-  </div>`;
-}
-
 function renderLoginShell() {
+  const s = loginState;
   return `
   <div class="login-wrap">
     <div class="login-card">
       <div class="login-brand">Bug Radar Admin</div>
-      ${loginState.step === "email" ? renderLoginEmailStep() : renderLoginOtpStep()}
+      <div class="login-title">Bug Radar Admin</div>
+      <div class="login-subtitle">Sign in with the admin account.</div>
+      <form id="loginForm">
+        <label class="login-label">Email</label>
+        <div class="login-field${s.error ? " err" : ""}">
+          <input id="loginEmailInput" type="email" placeholder="you@company.com" autocomplete="email" value="${escapeHtml(s.email)}"/>
+        </div>
+        <label class="login-label" style="margin-top:14px">Password</label>
+        <div class="login-field${s.error ? " err" : ""}">
+          <input id="loginPasswordInput" type="password" placeholder="••••••••" autocomplete="current-password" value="${escapeHtml(s.password)}"/>
+        </div>
+        ${s.error ? `<div class="login-error">${escapeHtml(s.error)}</div>` : ""}
+        <button type="submit" class="login-primary-btn${s.submitting ? " disabled" : ""}">
+          ${s.submitting ? `<span class="spinner"></span>` : `<span>Sign in</span>`}
+        </button>
+      </form>
     </div>
   </div>`;
 }
@@ -565,10 +451,7 @@ document.addEventListener("click", e => {
   const el = e.target.closest("[data-act]");
   if (!el) return;
   const act = el.dataset.act;
-  if (act === "otp-back") backToLoginEmail();
-  else if (act === "otp-verify") verifyLoginOtp();
-  else if (act === "otp-resend") submitLoginEmail({ preventDefault(){} });
-  else if (act === "logout") logout();
+  if (act === "logout") logout();
   else if (act === "nav") { state.view = el.dataset.view; if (el.dataset.view === "users" && !USERS.length) loadUsers(); render(); }
   else if (act === "open-user") { openUser(el.dataset.email); }
   else if (act === "toggle-task") { toggleTask(el.dataset.key); }
@@ -576,23 +459,12 @@ document.addEventListener("click", e => {
 });
 
 document.addEventListener("input", e => {
-  if (e.target.dataset && e.target.dataset.otpIndex !== undefined) {
-    onOtpInput(Number(e.target.dataset.otpIndex), e.target.value);
-  }
-  if (e.target.id === "loginEmailInput") {
-    loginState.email = e.target.value;
-    loginState.emailError = "";
-  }
-});
-
-document.addEventListener("keydown", e => {
-  if (e.target.dataset && e.target.dataset.otpIndex !== undefined) {
-    onOtpKeydown(Number(e.target.dataset.otpIndex), e);
-  }
+  if (e.target.id === "loginEmailInput") { loginState.email = e.target.value; loginState.error = ""; }
+  if (e.target.id === "loginPasswordInput") { loginState.password = e.target.value; loginState.error = ""; }
 });
 
 document.addEventListener("submit", e => {
-  if (e.target.id === "loginEmailForm") submitLoginEmail(e);
+  if (e.target.id === "loginForm") submitLogin(e);
 });
 
 async function checkAuth() {
@@ -611,9 +483,8 @@ async function logout() {
   OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {} };
   EVENTS = [];
   USER_DETAIL = null;
-  loginState.step = "email";
   loginState.email = "";
-  loginState.otp = ["", "", "", "", "", ""];
+  loginState.password = "";
   render();
 }
 
