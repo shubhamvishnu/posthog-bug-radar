@@ -936,6 +936,33 @@ function relativeAgeLabel(iso) {
 // against the previous report: only genuinely-new sessions get notified/captured, and
 // human tags on sessions the new run still recognizes are carried forward.
 const REPORT_RETENTION_DAYS = 21; // safely past the pipeline's widest lookback (14-day macro window)
+// A time cutoff alone doesn't bound a report row's size -- a high-volume or
+// short-sync_freq connection can still accumulate far more than REPORT_RETENTION_DAYS'
+// worth of distinct sessions within that same window. This is the hard backstop:
+// each finding embeds up to 150 raw events (fetchSessionEvents' own LIMIT) plus task
+// narratives, so capping the count directly bounds the JSON blob regardless of volume
+// or how frequently a connection runs. (Historical report ROWS are a real, already-
+// shipped admin feature -- Tenant Detail's paginated report history -- so old rows are
+// never deleted here; this caps what one row's own micro_findings can grow to.)
+const REPORT_MAX_FINDINGS = 30;
+
+// Shared by every path that merges new findings into a previous report
+// (saveGeneratedReport, runPipelineForConnectionTargeted, and the legacy
+// /api/pipeline/report/merge route) so all three stay bounded the same way.
+function capMergedFindings(findings) {
+  const retentionCutoffMs = Date.now() - REPORT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  let capped = findings.filter(f => {
+    const startedMs = Date.parse(f.started_at);
+    return Number.isNaN(startedMs) || startedMs >= retentionCutoffMs; // keep if unparseable rather than silently drop
+  });
+  if (capped.length > REPORT_MAX_FINDINGS) {
+    capped = capped
+      .slice()
+      .sort((a, b) => (Date.parse(b.started_at) || 0) - (Date.parse(a.started_at) || 0))
+      .slice(0, REPORT_MAX_FINDINGS);
+  }
+  return capped;
+}
 
 async function saveGeneratedReport(env, { ownerEmail, connectionId, generatedAt, macroThemes, microFindings, themePrompt, sessionPrompt, captureCount, triggerLabel }) {
   const goalsResult = await resolveGoals(env, ownerEmail, microFindings || []);
@@ -963,17 +990,7 @@ async function saveGeneratedReport(env, { ownerEmail, connectionId, generatedAt,
     }
     bySession.set(f.session_id, f);
   }
-  // Bound growth: this report row now accumulates across every run instead of being
-  // replaced each time (needed for the dedup/tag-preservation above), so without a
-  // cutoff it would grow without limit on an unattended, forever-running cron and
-  // eventually exceed D1's per-row size limit. Nothing outside REPORT_RETENTION_DAYS
-  // can be a HogQL candidate again anyway (the widest lookback this pipeline ever
-  // queries is the 14-day macro window), so pruning past that loses no live utility.
-  const retentionCutoffMs = Date.now() - REPORT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-  const mergedMicro = Array.from(bySession.values()).filter(f => {
-    const startedMs = Date.parse(f.started_at);
-    return Number.isNaN(startedMs) || startedMs >= retentionCutoffMs; // keep if unparseable rather than silently drop
-  });
+  const mergedMicro = capMergedFindings(Array.from(bySession.values()));
 
   if (!Array.isArray(macroThemes)) {
     console.error(`[report] WARNING: non-array macro_themes for ${ownerEmail} (connection ${connectionId}) -- keeping the previous report's themes instead of storing a malformed value`);
@@ -1221,7 +1238,7 @@ async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
     }
     bySession.set(f.session_id, f);
   }
-  const mergedMicro = Array.from(bySession.values());
+  const mergedMicro = capMergedFindings(Array.from(bySession.values()));
   await env.DB.prepare(
     `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -1249,12 +1266,14 @@ async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
 // How long a lock is honored before it's treated as abandoned (the run that set it
 // was killed by the platform mid-flight and never reached this function's `finally`).
 // Scaled to the connection's own sync_max_sessions rather than a flat guess: the
-// worst case is one macro call plus one call per session, each up to the 120s API
-// timeout, so a fixed TTL would either falsely reclaim a legitimately slow large
-// run (double-running it) or wait far too long for a small one to self-heal.
+// worst case is one macro call plus one call per session, each up to the 120s LLM
+// API timeout PLUS the preceding HogQL fetch (fetchSessionEvents/hogqlPost have no
+// explicit request timeout of their own, only a 2s/4s retry backoff on 5xx -- a slow
+// but non-erroring PostHog response isn't bounded by that), so the per-call budget
+// carries real headroom above the 120s figure, not just a few extra seconds of it.
 function pipelineLockTtlMs(conn) {
   const sessionCount = conn.sync_max_sessions || 8;
-  return (sessionCount + 1) * 130 * 1000; // +1 for the macro call; 130s/call gives headroom above the 120s API timeout
+  return (sessionCount + 1) * 180 * 1000; // +1 for the macro call; 180s/call
 }
 
 function toSqliteTime(date) {
@@ -1263,25 +1282,31 @@ function toSqliteTime(date) {
 
 // Atomic acquire via a conditional UPDATE (not read-then-write) so two entry points
 // racing for the same connection -- a cron tick and a manual run-now call, or two
-// overlapping cron ticks -- can't both believe they hold the lock. Returns whether
-// THIS call acquired it.
+// overlapping cron ticks -- can't both believe they hold the lock. Stamps a random
+// fencing token alongside the timestamp and returns it (or null if not acquired):
+// release must present the same token, so a run that outlives its own TTL and only
+// gets around to releasing after a second run has already acquired the lock can't
+// clear the SECOND run's lock out from under it -- it only ever matches its own.
 async function acquirePipelineLock(env, connId, ttlMs) {
   const cutoff = toSqliteTime(new Date(Date.now() - ttlMs));
+  const token = crypto.randomUUID();
   const result = await env.DB.prepare(
-    `UPDATE connections SET pipeline_lock_at = datetime('now')
+    `UPDATE connections SET pipeline_lock_at = datetime('now'), pipeline_lock_token = ?
      WHERE id = ? AND (pipeline_lock_at IS NULL OR pipeline_lock_at < ?)`
-  ).bind(connId, cutoff).run();
-  return (result.meta?.changes || 0) > 0;
+  ).bind(token, connId, cutoff).run();
+  return (result.meta?.changes || 0) > 0 ? token : null;
 }
 
-async function releasePipelineLock(env, connId) {
-  await env.DB.prepare("UPDATE connections SET pipeline_lock_at = NULL WHERE id = ?").bind(connId).run().catch(() => {});
+async function releasePipelineLock(env, connId, token) {
+  await env.DB.prepare(
+    "UPDATE connections SET pipeline_lock_at = NULL, pipeline_lock_token = NULL WHERE id = ? AND pipeline_lock_token = ?"
+  ).bind(connId, token).run().catch(() => {});
 }
 
 async function runPipelineSafely(env, conn, sessionIds) {
   const ttlMs = pipelineLockTtlMs(conn);
-  const acquired = await acquirePipelineLock(env, conn.id, ttlMs);
-  if (!acquired) {
+  const lockToken = await acquirePipelineLock(env, conn.id, ttlMs);
+  if (!lockToken) {
     console.log(`[scheduled] connection #${conn.id} already has an active lock, skipping this tick`);
     return { ok: true, skipped: true, reason: "already running" };
   }
@@ -1296,8 +1321,9 @@ async function runPipelineSafely(env, conn, sessionIds) {
     return { ok: false, error: e.message };
   } finally {
     // Always clear the lock, success or failure, so a genuinely-finished run never
-    // blocks the next legitimate one.
-    await releasePipelineLock(env, conn.id);
+    // blocks the next legitimate one. Ownership-checked via lockToken -- see
+    // acquirePipelineLock's comment for why that matters.
+    await releasePipelineLock(env, conn.id, lockToken);
   }
 }
 
@@ -1531,7 +1557,7 @@ export default {
         }
         bySession.set(f.session_id, f);
       }
-      const mergedMicro = Array.from(bySession.values());
+      const mergedMicro = capMergedFindings(Array.from(bySession.values()));
       const resolvedConnectionId = connectionId || (base ? base.connection_id : null);
       await env.DB.prepare(
         `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
