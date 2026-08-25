@@ -1212,10 +1212,12 @@ let TAGS = []; let TAGS_TOTAL = 0;
 async function loadGoals() {
   const res = await fetch("/api/goals");
   if (res.ok) { const d = await res.json(); GOALS = d.goals; GOALS_TOTAL = d.total; }
+  render();
 }
 async function loadTags() {
   const res = await fetch("/api/tags");
   if (res.ok) { const d = await res.json(); TAGS = d.tags; TAGS_TOTAL = d.total; }
+  render();
 }
 ```
 
@@ -1338,6 +1340,7 @@ let SLACK_TENANTS = [];
 async function loadSlackTenants() {
   const res = await fetch("/api/slack");
   if (res.ok) SLACK_TENANTS = (await res.json()).tenants;
+  render();
 }
 ```
 
