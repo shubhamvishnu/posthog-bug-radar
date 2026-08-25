@@ -480,13 +480,13 @@ let REPORT = { generated_at: null, macro_themes: [], micro_findings: [] };
 let PROMPTS = { theme: "", session: "" };
 let CORRECTIONS = [];
 const PIPELINE = [
-  ["Status", "scheduled batch pipeline"],
+  ["Status", "runs automatically on a Cloudflare Cron Trigger, per-connection cadence"],
   ["Data source", "PostHog · project 253183 (dreamteam)"],
   ["Signals", "$dead_click · $rageclick · $exception (events only, no session video)"],
   ["Macro lookback", "14 days"],
   ["Micro lookback", "3 days"],
   ["Sessions per run", "8 (worst dead + rage×3 + exceptions×5)"],
-  ["LLM", "claude CLI · subscription login, not metered API credits"],
+  ["LLM", "provider API (Anthropic / OpenAI / Gemini, per-tenant, set in Admin > AI Providers)"],
   ["Store", "Cloudflare Worker + D1"],
 ];
 

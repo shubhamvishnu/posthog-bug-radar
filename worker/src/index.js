@@ -164,7 +164,7 @@ function parseLlmJson(text) {
   return JSON.parse(text);
 }
 
-const LLM_API_TIMEOUT_MS = 120000; // matches bug_radar.py's LLM_API_TIMEOUT=120 -- Gemini hung
+const LLM_API_TIMEOUT_MS = 120000; // 120 second timeout -- Gemini hung
                                     // past 90s with no timeout set (confirmed live this session)
 
 async function callAnthropicLlm(prompt, model, apiKey) {
@@ -996,11 +996,11 @@ async function triggerCaptureViaGithub(env, sessionId, keyTimestamp, connectionI
 
 const PIPELINE_MACRO_WINDOW = "14 DAY";
 const PIPELINE_MICRO_WINDOW = "3 DAY";
-const PIPELINE_SESSION_WINDOW = "4 DAY"; // micro window + 1 day, matches bug_radar.py's session_window default
+const PIPELINE_SESSION_WINDOW = "4 DAY"; // micro window + 1 day
 
 async function runPipelineForConnection(env, conn) {
-  // Heartbeat: stamp last_pipeline_run_at BEFORE doing any real work, matching
-  // bug_radar.py's /touch call. Without this, a run that takes longer than one
+  // Heartbeat: stamp last_pipeline_run_at BEFORE doing any real work.
+  // Without this, a run that takes longer than one
   // 5-minute cron tick would still show as "due" to the next tick (computeDue
   // only sees the final post-completion timestamp otherwise), causing the same
   // connection to be picked up and run twice concurrently.
