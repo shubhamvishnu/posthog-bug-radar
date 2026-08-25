@@ -114,6 +114,47 @@ async function decryptSecret(env, ciphertextB64, ivB64) {
   return new TextDecoder().decode(plain);
 }
 
+const AI_PROVIDERS = ["anthropic", "openai", "gemini"];
+
+async function resolveAiConfig(env, ownerEmail) {
+  const row = await env.DB.prepare(
+    "SELECT provider, model, encrypted_api_key, iv FROM tenant_ai_config WHERE owner_email = ?"
+  ).bind(ownerEmail).first();
+
+  let provider, model, encryptedKey, iv;
+  if (!row) {
+    const def = await env.DB.prepare(
+      "SELECT encrypted_api_key, iv, default_model FROM ai_provider_defaults WHERE provider = 'anthropic'"
+    ).first();
+    if (!def) throw new Error("no anthropic default configured");
+    provider = "anthropic";
+    model = def.default_model;
+    encryptedKey = def.encrypted_api_key;
+    iv = def.iv;
+  } else {
+    provider = row.provider;
+    model = row.model;
+    if (row.encrypted_api_key) {
+      encryptedKey = row.encrypted_api_key;
+      iv = row.iv;
+    } else {
+      const def = await env.DB.prepare(
+        "SELECT encrypted_api_key, iv FROM ai_provider_defaults WHERE provider = ?"
+      ).bind(provider).first();
+      if (!def) throw new Error(`no default key configured for provider ${provider}`);
+      encryptedKey = def.encrypted_api_key;
+      iv = def.iv;
+    }
+  }
+  const apiKey = await decryptSecret(env, encryptedKey, iv);
+  return { provider, model, api_key: apiKey, use_session_first: provider === "anthropic" };
+}
+
+function maskKey(plaintext) {
+  if (!plaintext || plaintext.length < 4) return "••••";
+  return `••••${plaintext.slice(-4)}`;
+}
+
 async function getSlackBotToken(env, ownerEmail) {
   const row = await env.DB.prepare(
     "SELECT encrypted_bot_token, iv FROM slack_connections WHERE owner_email = ? AND status = 'connected'"
@@ -709,6 +750,18 @@ export default {
         "SELECT id, label, color, source FROM tags WHERE owner_email = ? ORDER BY id"
       ).bind(ownerEmail).all();
       return json(results);
+    }
+
+    if (pathname === "/api/pipeline/ai-config" && request.method === "GET") {
+      if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const ownerEmail = url.searchParams.get("owner_email");
+      if (!ownerEmail) return json({ error: "owner_email required" }, 400);
+      try {
+        const config = await resolveAiConfig(env, ownerEmail);
+        return json(config);
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
     }
 
     if (pathname === "/api/pipeline/report/merge" && request.method === "POST") {
