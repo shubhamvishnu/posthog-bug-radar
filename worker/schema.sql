@@ -149,3 +149,10 @@ CREATE TABLE IF NOT EXISTS slack_rules (
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS admin_login_attempts (
+  email TEXT PRIMARY KEY,
+  failed_count INTEGER NOT NULL DEFAULT 0,
+  locked_until TEXT,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
