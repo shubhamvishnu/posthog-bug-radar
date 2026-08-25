@@ -690,6 +690,12 @@ export default {
       return (request.headers.get("authorization") || "") === `Bearer ${env.BUGRADAR_API_SECRET}`;
     }
 
+    /* admin-only routes: service auth via ADMIN_MEDIA_SECRET, not user session */
+    function adminSecretAuthed(request, env) {
+      const auth = request.headers.get("authorization") || "";
+      return !!env.ADMIN_MEDIA_SECRET && auth === `Bearer ${env.ADMIN_MEDIA_SECRET}`;
+    }
+
     if (pathname === "/api/pipeline/connections" && request.method === "GET") {
       if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
       const { results } = await env.DB.prepare(
@@ -891,6 +897,113 @@ export default {
           "cache-control": "private, max-age=31536000, immutable",
         },
       });
+    }
+
+    if (pathname === "/api/admin/ai-providers" && request.method === "GET") {
+      if (!adminSecretAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const { results } = await env.DB.prepare(
+        "SELECT provider, encrypted_api_key, iv, default_model FROM ai_provider_defaults"
+      ).all();
+      const out = {};
+      for (const p of AI_PROVIDERS) out[p] = { configured: false, masked_key: null, default_model: null };
+      for (const row of results) {
+        const plaintext = await decryptSecret(env, row.encrypted_api_key, row.iv);
+        out[row.provider] = { configured: true, masked_key: maskKey(plaintext), default_model: row.default_model };
+      }
+      return json(out);
+    }
+
+    const providerPutMatch = pathname.match(/^\/api\/admin\/ai-providers\/([^/]+)$/);
+    if (providerPutMatch && request.method === "PUT") {
+      if (!adminSecretAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const provider = providerPutMatch[1];
+      if (!AI_PROVIDERS.includes(provider)) return json({ error: "unknown provider" }, 400);
+      const body = await request.json().catch(() => ({}));
+      const defaultModel = String(body.default_model || "").trim();
+      if (!defaultModel) return json({ error: "default_model required" }, 400);
+      if (body.api_key) {
+        const { ciphertext, iv } = await encryptSecret(env, String(body.api_key));
+        await env.DB.prepare(
+          `INSERT INTO ai_provider_defaults (provider, encrypted_api_key, iv, default_model, updated_at)
+           VALUES (?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(provider) DO UPDATE SET encrypted_api_key = ?, iv = ?, default_model = ?, updated_at = datetime('now')`
+        ).bind(provider, ciphertext, iv, defaultModel, ciphertext, iv, defaultModel).run();
+      } else {
+        const existing = await env.DB.prepare("SELECT provider FROM ai_provider_defaults WHERE provider = ?").bind(provider).first();
+        if (!existing) return json({ error: "api_key required for first-time setup" }, 400);
+        await env.DB.prepare(
+          "UPDATE ai_provider_defaults SET default_model = ?, updated_at = datetime('now') WHERE provider = ?"
+        ).bind(defaultModel, provider).run();
+      }
+      return json({ ok: true });
+    }
+
+    const tenantConfigMatch = pathname.match(/^\/api\/admin\/ai-config\/([^/]+)$/);
+    if (tenantConfigMatch && request.method === "GET") {
+      if (!adminSecretAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const ownerEmail = decodeURIComponent(tenantConfigMatch[1]).trim().toLowerCase();
+      const row = await env.DB.prepare(
+        "SELECT provider, model, encrypted_api_key FROM tenant_ai_config WHERE owner_email = ?"
+      ).bind(ownerEmail).first();
+      let resolved;
+      try {
+        resolved = await resolveAiConfig(env, ownerEmail);
+      } catch (e) {
+        return json({ error: e.message }, 500);
+      }
+      return json({
+        provider: resolved.provider,
+        model: resolved.model,
+        is_override: !!row,
+        has_custom_key: !!(row && row.encrypted_api_key),
+        masked_key: maskKey(resolved.api_key),
+      });
+    }
+
+    if (tenantConfigMatch && request.method === "PUT") {
+      if (!adminSecretAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const ownerEmail = decodeURIComponent(tenantConfigMatch[1]).trim().toLowerCase();
+      const body = await request.json().catch(() => ({}));
+      const provider = String(body.provider || "").trim();
+      const model = String(body.model || "").trim();
+      const useCustomKey = !!body.use_custom_key;
+      if (!AI_PROVIDERS.includes(provider)) return json({ error: "unknown provider" }, 400);
+      if (!model) return json({ error: "model required" }, 400);
+
+      if (!useCustomKey) {
+        await env.DB.prepare(
+          `INSERT INTO tenant_ai_config (owner_email, provider, model, encrypted_api_key, iv, updated_at)
+           VALUES (?, ?, ?, NULL, NULL, datetime('now'))
+           ON CONFLICT(owner_email) DO UPDATE SET provider = ?, model = ?, encrypted_api_key = NULL, iv = NULL, updated_at = datetime('now')`
+        ).bind(ownerEmail, provider, model, provider, model).run();
+      } else if (body.api_key) {
+        const { ciphertext, iv } = await encryptSecret(env, String(body.api_key));
+        await env.DB.prepare(
+          `INSERT INTO tenant_ai_config (owner_email, provider, model, encrypted_api_key, iv, updated_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(owner_email) DO UPDATE SET provider = ?, model = ?, encrypted_api_key = ?, iv = ?, updated_at = datetime('now')`
+        ).bind(ownerEmail, provider, model, ciphertext, iv, provider, model, ciphertext, iv).run();
+      } else {
+        const existing = await env.DB.prepare(
+          "SELECT encrypted_api_key FROM tenant_ai_config WHERE owner_email = ?"
+        ).bind(ownerEmail).first();
+        if (!existing || !existing.encrypted_api_key) {
+          return json({ error: "custom key required (none on file yet)" }, 400);
+        }
+        await env.DB.prepare(
+          `INSERT INTO tenant_ai_config (owner_email, provider, model, updated_at)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(owner_email) DO UPDATE SET provider = ?, model = ?, updated_at = datetime('now')`
+        ).bind(ownerEmail, provider, model, provider, model).run();
+      }
+      return json({ ok: true });
+    }
+
+    if (tenantConfigMatch && request.method === "DELETE") {
+      if (!adminSecretAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const ownerEmail = decodeURIComponent(tenantConfigMatch[1]).trim().toLowerCase();
+      await env.DB.prepare("DELETE FROM tenant_ai_config WHERE owner_email = ?").bind(ownerEmail).run();
+      return json({ ok: true });
     }
 
     if (pathname === "/api/prompts" && request.method === "GET") {
