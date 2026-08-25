@@ -98,6 +98,16 @@ def fetch_tags(worker_url, secret, owner_email):
     return resp.json()
 
 
+def fetch_ai_config(worker_url, secret, owner_email):
+    headers = {"Authorization": f"Bearer {secret}"}
+    resp = requests.get(
+        f"{worker_url}/api/pipeline/ai-config",
+        headers=headers, params={"owner_email": owner_email}, timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 def trigger_capture(session_id, key_timestamp, connection_id, task_index):
     """Fire-and-forget: dispatches the GitHub Actions capture workflow. Never
     raises, a failure here must not affect the pipeline's own report push."""
@@ -356,19 +366,69 @@ SESSION EVENTS:
 """
 
 
-def call_llm(prompt):
+def _parse_llm_json(text):
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+    return json.loads(text)
+
+
+def call_llm_claude_session(prompt):
     result = subprocess.run(
         ["claude", "-p", prompt],
         capture_output=True, text=True, timeout=240,
     )
     if result.returncode != 0:
         raise RuntimeError(f"claude CLI failed: {result.stderr.strip()}")
-    text = result.stdout.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1]
-        if text.startswith("json"):
-            text = text[4:]
-    return json.loads(text)
+    return _parse_llm_json(result.stdout)
+
+
+def call_llm_anthropic_api(prompt, model, api_key):
+    import anthropic
+    client = anthropic.Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model=model, max_tokens=16000,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    text = "".join(block.text for block in response.content if block.type == "text")
+    return _parse_llm_json(text)
+
+
+def call_llm_openai(prompt, model, api_key):
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return _parse_llm_json(response.choices[0].message.content)
+
+
+def call_llm_gemini(prompt, model, api_key):
+    from google import genai
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(model=model, contents=prompt)
+    return _parse_llm_json(response.text)
+
+
+def call_llm(prompt, ai_config):
+    provider = ai_config["provider"]
+    model = ai_config["model"]
+    api_key = ai_config["api_key"]
+    if provider == "anthropic":
+        if ai_config.get("use_session_first"):
+            try:
+                return call_llm_claude_session(prompt)
+            except Exception as e:
+                print(f"[llm] claude session failed ({e}), falling back to Anthropic API ({model})")
+        return call_llm_anthropic_api(prompt, model, api_key)
+    elif provider == "openai":
+        return call_llm_openai(prompt, model, api_key)
+    elif provider == "gemini":
+        return call_llm_gemini(prompt, model, api_key)
+    raise RuntimeError(f"unknown AI provider: {provider}")
 
 
 def main():
@@ -422,6 +482,8 @@ def main():
         goals_context = json.dumps([{"id": g["id"], "purpose": g["purpose"], "description": g.get("description"), "tags": g.get("tags", [])} for g in goals]) if goals else "(none yet — every task in this run should propose a new_goal)"
         tags = fetch_tags(args.worker_url, secret, conn["owner_email"])
         tags_context = json.dumps([{"id": t["id"], "label": t["label"]} for t in tags]) if tags else "(none yet — propose a new_tag for any task that clearly needs one)"
+        ai_config = fetch_ai_config(args.worker_url, secret, conn["owner_email"])
+        print(f"[llm] routing through {ai_config['provider']} / {ai_config['model']} for {conn['owner_email']}")
         print(f"[connection] #{conn['id']} {conn['project_name']} ({conn['region']}) owner={conn['owner_email']}")
         print(f"[goals] {len(goals)} existing goal(s) loaded")
         print(f"[tags] {len(tags)} existing tag(s) loaded")
@@ -441,7 +503,7 @@ def main():
             clusters = fetch_macro_clusters(host, project_id, ph_key, macro_window, limit=25)
             print(f"[macro] {len(clusters)} clusters -> naming themes with LLM...")
             theme_prompt = THEME_PROMPT.format(company_context=company_context, data=json.dumps(clusters, default=str))
-            themes = call_llm(theme_prompt)
+            themes = call_llm(theme_prompt, ai_config)
 
             print(f"[micro] finding top {args.sessions} candidate sessions, last {micro_label}...")
             candidates = fetch_candidate_sessions(host, project_id, ph_key, micro_window, args.sessions, identity)
@@ -455,7 +517,7 @@ def main():
             if not events:
                 continue
             session_prompt = SESSION_PROMPT.format(company_context=company_context, goals_context=goals_context, tags_context=tags_context, data=json.dumps(events, default=str))
-            result = call_llm(session_prompt)
+            result = call_llm(session_prompt, ai_config)
             finding = {
                 "session_id": sid,
                 "replay_url": f"{host}/project/{project_id}/replay/{sid}",

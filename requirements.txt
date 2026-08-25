@@ -1,2 +1,5 @@
 requests>=2.31
 playwright>=1.45
+anthropic
+openai
+google-genai
