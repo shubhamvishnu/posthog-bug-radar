@@ -385,9 +385,15 @@ def call_llm_claude_session(prompt):
     return _parse_llm_json(result.stdout)
 
 
+LLM_API_TIMEOUT = 120  # seconds -- without this, a slow/overloaded provider call can hang
+                       # indefinitely (confirmed live: gemini-3.1-pro-preview hung past 90s
+                       # with no timeout set). The CLI session path already has its own
+                       # timeout=240 on the subprocess call; this is the API-path equivalent.
+
+
 def call_llm_anthropic_api(prompt, model, api_key):
     import anthropic
-    client = anthropic.Anthropic(api_key=api_key)
+    client = anthropic.Anthropic(api_key=api_key, timeout=LLM_API_TIMEOUT)
     response = client.messages.create(
         model=model, max_tokens=16000,
         messages=[{"role": "user", "content": prompt}],
@@ -398,7 +404,7 @@ def call_llm_anthropic_api(prompt, model, api_key):
 
 def call_llm_openai(prompt, model, api_key):
     from openai import OpenAI
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, timeout=LLM_API_TIMEOUT)
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
@@ -408,7 +414,8 @@ def call_llm_openai(prompt, model, api_key):
 
 def call_llm_gemini(prompt, model, api_key):
     from google import genai
-    client = genai.Client(api_key=api_key)
+    from google.genai import types
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=LLM_API_TIMEOUT * 1000))
     response = client.models.generate_content(model=model, contents=prompt)
     return _parse_llm_json(response.text)
 
