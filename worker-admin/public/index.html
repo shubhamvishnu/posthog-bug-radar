@@ -55,7 +55,7 @@ html[data-theme="dark"]{
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* ---- app shell ---- */
-.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px}
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:28px}
 .stat-card{border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);padding:18px}
 .stat-card .n{font-size:26px;font-weight:700;letter-spacing:-.02em}
 .stat-card .lbl{font-size:12px;color:var(--muted);margin-top:4px}
@@ -138,7 +138,7 @@ const AUTH = { email: null };
 const loginState = { email: "", password: "", error: "", submitting: false };
 const state = { view: "overview", selUserEmail: null, expandedTask: {}, expandedMoments: {} };
 
-let OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {} };
+let OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {}, slackConnectedCount: 0, failingConnectionCount: 0 };
 let EVENTS = [];
 let USERS = [];
 let USER_DETAIL = null;
@@ -415,6 +415,8 @@ function renderOverview() {
       <div class="stat-card"><div class="n">${OVERVIEW.connectionCount}</div><div class="lbl">Connections</div></div>
       <div class="stat-card"><div class="n">${OVERVIEW.reportCount}</div><div class="lbl">Reports</div></div>
       <div class="stat-card"><div class="n" style="font-size:15px;font-weight:600;line-height:1.5">${escapeHtml(statusLabel)}</div><div class="lbl">By status</div></div>
+      <div class="stat-card"><div class="n">${OVERVIEW.slackConnectedCount}</div><div class="lbl">Slack connected</div></div>
+      <div class="stat-card"><div class="n" style="${OVERVIEW.failingConnectionCount ? "color:var(--sev-high)" : ""}">${OVERVIEW.failingConnectionCount}</div><div class="lbl">Connections failing</div></div>
     </div>
   </div>`;
 }
@@ -560,7 +562,7 @@ async function logout() {
   try { await fetch("/api/auth/logout", { method: "POST" }); } catch (e) {}
   AUTH.email = null;
   USERS = [];
-  OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {} };
+  OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {}, slackConnectedCount: 0, failingConnectionCount: 0 };
   EVENTS = [];
   USER_DETAIL = null;
   loginState.email = "";

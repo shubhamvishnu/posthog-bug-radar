@@ -145,7 +145,13 @@ export default {
       ).all();
       const connectionsByStatus = {};
       for (const row of statusRows) connectionsByStatus[row.status] = row.n;
-      return json({ userCount, connectionCount, reportCount, connectionsByStatus });
+      const slackConnectedCount = (await env.DB.prepare(
+        "SELECT COUNT(*) as n FROM slack_connections WHERE status = 'connected'"
+      ).first()).n;
+      const failingConnectionCount = (await env.DB.prepare(
+        "SELECT COUNT(*) as n FROM connections WHERE last_error IS NOT NULL"
+      ).first()).n;
+      return json({ userCount, connectionCount, reportCount, connectionsByStatus, slackConnectedCount, failingConnectionCount });
     }
 
     if (pathname === "/api/events" && request.method === "GET") {
