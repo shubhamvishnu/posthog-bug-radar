@@ -230,6 +230,44 @@ async function loadSlackTenants() {
   render();
 }
 
+let AI_PROVIDERS_DATA = null;
+let AI_PROVIDER_FORMS = null;
+
+async function loadAiProviders() {
+  const res = await fetch("/api/admin/ai-providers");
+  if (res.ok) AI_PROVIDERS_DATA = await res.json();
+  render();
+}
+
+function initAiProviderForms() {
+  AI_PROVIDER_FORMS = {};
+  for (const p of ["anthropic", "openai", "gemini"]) {
+    const d = AI_PROVIDERS_DATA[p];
+    const catalog = AI_MODEL_CATALOG[p];
+    const model = d.default_model || catalog[0];
+    const isOther = !catalog.includes(model);
+    AI_PROVIDER_FORMS[p] = { model: isOther ? "other" : model, customModel: isOther ? model : "", keyEditing: false, newKey: "" };
+  }
+}
+
+async function saveAiProvider(provider) {
+  const form = AI_PROVIDER_FORMS[provider];
+  const model = form.model === "other" ? form.customModel.trim() : form.model;
+  if (!model) return;
+  const body = { default_model: model };
+  if (form.keyEditing && form.newKey.trim()) body.api_key = form.newKey.trim();
+  const res = await fetch(`/api/admin/ai-providers/${provider}`, {
+    method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  if (res.ok) {
+    form.keyEditing = false;
+    form.newKey = "";
+    await loadAiProviders();
+  } else {
+    render();
+  }
+}
+
 async function openSession(sessionId, ownerEmail) {
   state.view = "session-detail";
   state.selSessionId = sessionId;
@@ -352,6 +390,13 @@ function renderCorrectionsTable() {
 
 const SEV_VAR = { high: "var(--sev-high)", medium: "var(--sev-med)", low: "var(--faint)", none: "var(--faint)" };
 const SEV_TEXT = { high: "High", medium: "Medium", low: "Low", none: "None" };
+
+const AI_MODEL_CATALOG = {
+  anthropic: ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+  openai: ["gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"],
+  gemini: ["gemini-3.1-pro", "gemini-3.7-flash", "gemini-3.5-flash"],
+};
+const AI_PROVIDER_LABEL = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" };
 
 function sevOf(t) { return t.severity || "none"; }
 
@@ -651,6 +696,40 @@ function renderSlackScreen() {
   <div class="content">${rows || `<div class="empty-note">No tenants have connected Slack yet.</div>`}</div>`;
 }
 
+function renderAiProvidersScreen() {
+  if (!AI_PROVIDERS_DATA) return `<div class="pageheader"><span class="title">AI Providers</span></div><div class="content contentpad"><div class="empty-note">Loading…</div></div>`;
+  if (!AI_PROVIDER_FORMS) initAiProviderForms();
+  const cards = ["anthropic", "openai", "gemini"].map(p => renderAiProviderCard(p)).join("");
+  return `
+  <div class="pageheader"><span class="title">AI Providers</span></div>
+  <div class="content contentpad">${cards}</div>`;
+}
+
+function renderAiProviderCard(provider) {
+  const d = AI_PROVIDERS_DATA[provider];
+  const form = AI_PROVIDER_FORMS[provider];
+  const catalog = AI_MODEL_CATALOG[provider];
+  const modelOptions = catalog.map(m => `<option value="${escapeHtml(m)}"${form.model === m ? " selected" : ""}>${escapeHtml(m)}</option>`).join("")
+    + `<option value="other"${form.model === "other" ? " selected" : ""}>Other (custom)</option>`;
+  return `
+  <div class="panel" style="margin-bottom:14px;padding:16px 18px">
+    <div style="font-weight:700;font-size:15.5px;margin-bottom:10px">${escapeHtml(AI_PROVIDER_LABEL[provider])}</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span style="font-size:12.5px;color:var(--muted);width:70px">API key</span>
+      ${form.keyEditing
+        ? `<input data-ai-key-input="${provider}" type="password" placeholder="Paste new key" value="${escapeHtml(form.newKey)}" style="flex:1;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)"/>`
+        : `<span style="font-family:'JetBrains Mono',monospace;font-size:13px">${d.configured ? escapeHtml(d.masked_key) : "not set"}</span>
+           <button data-act="ai-provider-edit-key" data-provider="${provider}" style="font-size:12px;color:var(--accent)">Update key</button>`}
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <span style="font-size:12.5px;color:var(--muted);width:70px">Model</span>
+      <select data-ai-model-select="${provider}" style="height:34px;padding:0 8px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)">${modelOptions}</select>
+      ${form.model === "other" ? `<input data-ai-custom-model="${provider}" type="text" placeholder="model-id" value="${escapeHtml(form.customModel)}" style="height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)"/>` : ""}
+    </div>
+    <button data-act="ai-provider-save" data-provider="${provider}" class="login-primary-btn" style="width:auto;padding:0 18px;height:34px;margin-top:2px">Save</button>
+  </div>`;
+}
+
 /* ---------------- login (password-based) ---------------- */
 async function submitLogin(e) {
   e.preventDefault();
@@ -715,6 +794,7 @@ function renderMainContent() {
     case "sessions": return renderSessionsScreen();
     case "session-detail": return renderSessionDetailScreen();
     case "events": return renderEventsScreen();
+    case "ai-providers": return renderAiProvidersScreen();
     default: return "";
   }
 }
@@ -738,6 +818,7 @@ function renderSidebar() {
       <button class="nav-item${v === "goals" ? " active" : ""}" data-act="nav" data-view="goals">${ICON_TARGET}<span class="lbl">Goals</span></button>
       <button class="nav-item${v === "tags" ? " active" : ""}" data-act="nav" data-view="tags">${ICON_TAG}<span class="lbl">Tags</span></button>
       <button class="nav-item${v === "slack" ? " active" : ""}" data-act="nav" data-view="slack">${SLACK_MARK_SVG(16)}<span class="lbl">Slack</span></button>
+      <button class="nav-item${v === "ai-providers" ? " active" : ""}" data-act="nav" data-view="ai-providers">${ICON_TARGET}<span class="lbl">AI Providers</span></button>
       <button class="nav-item${v === "events" ? " active" : ""}" data-act="nav" data-view="events">${ICON_ACTIVITY_EVENTS}<span class="lbl">Events</span></button>
     </nav>
     <div class="side-bottom">
@@ -775,6 +856,7 @@ document.addEventListener("click", e => {
     if (el.dataset.view === "tags" && !TAGS.length) loadTags();
     if (el.dataset.view === "slack" && !SLACK_TENANTS.length) loadSlackTenants();
     if (el.dataset.view === "sessions" && !SESSIONS.length) loadSessions();
+    if (el.dataset.view === "ai-providers" && !AI_PROVIDERS_DATA) loadAiProviders();
     render();
   }
   else if (act === "open-user") { openUser(el.dataset.email); }
@@ -782,11 +864,22 @@ document.addEventListener("click", e => {
   else if (act === "toggle-task") { toggleTask(el.dataset.key); }
   else if (act === "toggle-moments") { toggleMoments(el.dataset.key); }
   else if (act === "load-more-reports") { loadMoreReports(); }
+  else if (act === "ai-provider-edit-key") { AI_PROVIDER_FORMS[el.dataset.provider].keyEditing = true; render(); }
+  else if (act === "ai-provider-save") { saveAiProvider(el.dataset.provider); }
 });
 
 document.addEventListener("input", e => {
   if (e.target.id === "loginEmailInput") { loginState.email = e.target.value; loginState.error = ""; }
   if (e.target.id === "loginPasswordInput") { loginState.password = e.target.value; loginState.error = ""; }
+  if (e.target.dataset.aiKeyInput) { AI_PROVIDER_FORMS[e.target.dataset.aiKeyInput].newKey = e.target.value; }
+  if (e.target.dataset.aiCustomModel) { AI_PROVIDER_FORMS[e.target.dataset.aiCustomModel].customModel = e.target.value; }
+});
+
+document.addEventListener("change", e => {
+  if (e.target.dataset.aiModelSelect) {
+    AI_PROVIDER_FORMS[e.target.dataset.aiModelSelect].model = e.target.value;
+    render();
+  }
 });
 
 document.addEventListener("submit", e => {
@@ -817,6 +910,8 @@ async function logout() {
   CONNECTIONS = [];
   GOALS = []; GOALS_TOTAL = 0;
   TAGS = []; TAGS_TOTAL = 0;
+  AI_PROVIDERS_DATA = null;
+  AI_PROVIDER_FORMS = null;
   state.view = "overview";
   loginState.email = "";
   loginState.password = "";
