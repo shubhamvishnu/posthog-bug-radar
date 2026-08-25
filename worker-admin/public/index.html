@@ -192,7 +192,12 @@ async function openUser(email) {
   render();
   const res = await fetch(`/api/users/${encodeURIComponent(email)}`);
   if (state.selUserEmail !== email) return; // a newer click superseded this request
-  if (res.ok) USER_DETAIL = await res.json();
+  if (res.ok) {
+    USER_DETAIL = await res.json();
+    // The embedded first page is capped at 10 rows (see /api/users/:email), so a full
+    // page means there may be more; a short page means this is everything.
+    USER_DETAIL.reportHistoryHasMore = (USER_DETAIL.report_history || []).length === 10;
+  }
   render();
 }
 
@@ -379,6 +384,9 @@ async function loadMoreReports() {
   if (!res.ok) return;
   const data = await res.json();
   USER_DETAIL.report_history = [...history, ...data.report_history];
+  // Whether to keep offering "Load more" depends on the size of the page just
+  // fetched, not the accumulated total (which can land on a multiple of 10).
+  USER_DETAIL.reportHistoryHasMore = (data.report_history || []).length === 10;
   render();
 }
 
@@ -389,7 +397,7 @@ function renderLatestReportSection() {
     <div style="font-size:11.5px;color:var(--faint);margin:10px 0 8px">
       ${history.map(r => `${escapeHtml(String(r.generated_at || "").slice(0, 10))} · ${r.task_count} tasks`).join(" &nbsp;·&nbsp; ")}
     </div>
-    ${history.length % 10 === 0 ? `<button data-act="load-more-reports" style="font-size:12px;color:var(--accent);margin-bottom:18px">Load more</button>` : ""}` : "";
+    ${history.length > 0 && USER_DETAIL.reportHistoryHasMore ? `<button data-act="load-more-reports" style="font-size:12px;color:var(--accent);margin-bottom:18px">Load more</button>` : ""}` : "";
   if (!report) {
     return `<div class="section-title">Latest report</div><div class="panel"><div class="empty-note">No report yet.</div></div>${historyHtml}`;
   }
