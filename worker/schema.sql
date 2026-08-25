@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS connections (
   sync_freq TEXT NOT NULL DEFAULT '1d',
   sync_max_sessions INTEGER NOT NULL DEFAULT 8,
   last_pipeline_run_at TEXT,
+  pipeline_lock_at TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

@@ -926,37 +926,70 @@ function relativeAgeLabel(iso) {
   return hrs < 24 ? `${hrs}h` : `${Math.round(hrs / 24)}d`;
 }
 
+// Merges into the owner's latest existing report rather than blindly replacing it --
+// this now runs on an unattended timer instead of only ever by hand, so two bugs that
+// were tolerable as an occasional manual annoyance become structural if left as-is:
+// (1) a session still inside the rolling lookback window would get re-notified to
+// Slack and re-dispatched for screenshot capture on every single run it keeps
+// appearing in, and (2) any human-assigned tag on a still-in-window session would get
+// silently wiped by the next run's fresh LLM verdict. Both are fixed by diffing
+// against the previous report: only genuinely-new sessions get notified/captured, and
+// human tags on sessions the new run still recognizes are carried forward.
 async function saveGeneratedReport(env, { ownerEmail, connectionId, generatedAt, macroThemes, microFindings, themePrompt, sessionPrompt, captureCount, triggerLabel }) {
   const goalsResult = await resolveGoals(env, ownerEmail, microFindings || []);
   const tagsResult = await resolveTags(env, ownerEmail, goalsResult.findings);
-  const resolvedFindings = tagsResult.findings;
+  const newFindings = tagsResult.findings;
+
+  const base = await env.DB.prepare("SELECT * FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1").bind(ownerEmail).first();
+  const baseMicro = base ? JSON.parse(base.micro_findings) : [];
+  const bySession = new Map(baseMicro.map(f => [f.session_id, f]));
+  const genuinelyNewFindings = newFindings.filter(f => !bySession.has(f.session_id));
+
+  for (const f of newFindings) {
+    const old = bySession.get(f.session_id);
+    if (old) {
+      (old.tasks || []).forEach((oldTask, i) => {
+        const userTags = (oldTask.tags || []).filter(tg => tg.assign === "user");
+        if (userTags.length && f.tasks && f.tasks[i]) {
+          const newTask = f.tasks[i];
+          newTask.tags = newTask.tags || [];
+          for (const ut of userTags) {
+            if (!newTask.tags.some(tg => tg.tag_id === ut.tag_id)) newTask.tags.push(ut);
+          }
+        }
+      });
+    }
+    bySession.set(f.session_id, f);
+  }
+  const mergedMicro = Array.from(bySession.values());
+
   await env.DB.prepare(
     `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       generatedAt,
-      JSON.stringify(macroThemes || []),
-      JSON.stringify(resolvedFindings),
-      themePrompt || null,
-      sessionPrompt || null,
+      JSON.stringify(Array.isArray(macroThemes) ? macroThemes : (base ? JSON.parse(base.macro_themes) : [])),
+      JSON.stringify(mergedMicro),
+      themePrompt || (base ? base.theme_prompt : null),
+      sessionPrompt || (base ? base.session_prompt : null),
       ownerEmail,
       connectionId || null
     )
     .run();
   if (connectionId) {
     await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(connectionId).run();
-    const taskCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).length, 0);
-    const realBugCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).filter(t => t.real_bug).length, 0);
-    const outreachCount = resolvedFindings.filter(f => f.recommended_outreach).length;
+    const taskCount = newFindings.reduce((n, f) => n + (f.tasks || []).length, 0);
+    const realBugCount = newFindings.reduce((n, f) => n + (f.tasks || []).filter(t => t.real_bug).length, 0);
+    const outreachCount = newFindings.filter(f => f.recommended_outreach).length;
     await logConnectionEvent(
       env, connectionId, "sync_completed", "success", "Sync completed",
-      `Pulled ${resolvedFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount || 0} moments queued.`,
+      `Pulled ${newFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount || 0} moments queued.`,
       triggerLabel || "scheduled"
     );
   }
-  await postSlackNotifications(env, ownerEmail, resolvedFindings);
-  return { ok: true, findings: resolvedFindings };
+  await postSlackNotifications(env, ownerEmail, genuinelyNewFindings);
+  return { ok: true, findings: newFindings, newFindings: genuinelyNewFindings };
 }
 
 const CAPTURE_REPO = "shubhamvishnu/posthog-bug-radar";
@@ -999,12 +1032,13 @@ const PIPELINE_MICRO_WINDOW = "3 DAY";
 const PIPELINE_SESSION_WINDOW = "4 DAY"; // micro window + 1 day
 
 async function runPipelineForConnection(env, conn) {
-  // Heartbeat: stamp last_pipeline_run_at BEFORE doing any real work.
-  // Without this, a run that takes longer than one
-  // 5-minute cron tick would still show as "due" to the next tick (computeDue
-  // only sees the final post-completion timestamp otherwise), causing the same
-  // connection to be picked up and run twice concurrently.
-  await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(conn.id).run();
+  // Lock (not the heartbeat -- see runPipelineSafely): stamp pipeline_lock_at BEFORE
+  // doing any real work. last_pipeline_run_at is left alone here -- it only means
+  // "last successful completion" (set by saveGeneratedReport), which is what
+  // computeDue needs to decide the NEXT due time. pipeline_lock_at is a separate,
+  // short-lived "currently running" flag scheduled() checks so a run that outlives
+  // one cron tick can't be picked up a second time before it finishes.
+  await env.DB.prepare("UPDATE connections SET pipeline_lock_at = datetime('now') WHERE id = ?").bind(conn.id).run();
 
   const region = conn.region;
   const projectId = conn.project_id;
@@ -1069,7 +1103,7 @@ async function runPipelineForConnection(env, conn) {
 
   const generatedAt = new Date().toISOString();
   const sessionPromptSample = sessionPromptFor(companyContext, goalsContext, tagsContext, "<per-session events>");
-  await saveGeneratedReport(env, {
+  const saveResult = await saveGeneratedReport(env, {
     ownerEmail: conn.owner_email,
     connectionId: conn.id,
     generatedAt,
@@ -1081,21 +1115,28 @@ async function runPipelineForConnection(env, conn) {
     triggerLabel: "scheduled",
   });
 
+  // Only dispatch a screenshot capture for sessions that are genuinely new this run --
+  // a session still inside the rolling lookback window would otherwise get re-captured
+  // every single time it keeps appearing in the candidate list.
+  const newSessionIds = new Set(saveResult.newFindings.map(f => f.session_id));
   for (const [sid, keyTs, idx] of pendingCaptures) {
-    await triggerCaptureViaGithub(env, sid, keyTs, conn.id, idx);
+    if (newSessionIds.has(sid)) {
+      await triggerCaptureViaGithub(env, sid, keyTs, conn.id, idx);
+    }
   }
 
+  const themeCount = Array.isArray(themes) ? themes.length : 0;
   const totalTasks = findings.reduce((n, f) => n + f.tasks.length, 0);
   const realBugs = findings.reduce((n, f) => n + f.tasks.filter(t => t.real_bug).length, 0);
-  console.log(`[done] connection #${conn.id}: ${themes.length} macro themes, ${findings.length} sessions -> ${totalTasks} tasks, ${realBugs} real bugs`);
-  return { themes: themes.length, sessions: findings.length, tasks: totalTasks, real_bugs: realBugs };
+  console.log(`[done] connection #${conn.id}: ${themeCount} macro themes, ${findings.length} sessions -> ${totalTasks} tasks, ${realBugs} real bugs`);
+  return { themes: themeCount, sessions: findings.length, tasks: totalTasks, real_bugs: realBugs };
 }
 
 async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
-  // Same heartbeat rationale as runPipelineForConnection: stamps in-progress
-  // before any real work, so two overlapping manual run-now calls on the same
-  // connection can't race each other's D1 writes.
-  await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(conn.id).run();
+  // Same lock rationale as runPipelineForConnection: stamps pipeline_lock_at
+  // (not last_pipeline_run_at) before any real work, so two overlapping manual
+  // run-now calls on the same connection can't race each other's D1 writes.
+  await env.DB.prepare("UPDATE connections SET pipeline_lock_at = datetime('now') WHERE id = ?").bind(conn.id).run();
 
   const region = conn.region;
   const projectId = conn.project_id;
@@ -1210,6 +1251,10 @@ async function runPipelineSafely(env, conn, sessionIds) {
     console.error(`ERROR: pipeline run failed for connection ${conn.id}: ${e.message}`);
     await logConnectionEvent(env, conn.id, "sync_failed", "error", "Sync failed", e.message || "Unknown error", sessionIds ? "manual · targeted" : "scheduled").catch(() => {});
     return { ok: false, error: e.message };
+  } finally {
+    // Always clear the lock, success or failure, so a genuinely-finished run never
+    // blocks the next legitimate one.
+    await env.DB.prepare("UPDATE connections SET pipeline_lock_at = NULL WHERE id = ?").bind(conn.id).run().catch(() => {});
   }
 }
 
@@ -1314,7 +1359,7 @@ export default {
 
     /* pipeline-only routes: service auth via BUGRADAR_API_SECRET, not user session */
     function pipelineAuthed(request, env) {
-      return (request.headers.get("authorization") || "") === `Bearer ${env.BUGRADAR_API_SECRET}`;
+      return !!env.BUGRADAR_API_SECRET && (request.headers.get("authorization") || "") === `Bearer ${env.BUGRADAR_API_SECRET}`;
     }
 
     /* admin-only routes: service auth via ADMIN_MEDIA_SECRET, not user session */
@@ -2246,13 +2291,40 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    const { results: rows } = await env.DB.prepare(
-      `SELECT c.*, cc.config_json FROM connections c LEFT JOIN connection_config cc ON cc.connection_id = c.id`
-    ).all();
-    const due = rows.filter(r => computeDue(r.sync_freq, r.last_pipeline_run_at));
-    console.log(`[scheduled] ${due.length}/${rows.length} connection(s) due`);
-    for (const conn of due) {
-      await runPipelineSafely(env, conn, null);
+    // PIPELINE_LOCK_TTL_MS: how long a connection is treated as "actively running"
+    // (skipped by the next tick) after pipeline_lock_at is stamped. Generous upper
+    // bound even for the largest sync_max_sessions (100) at the 120s-per-call LLM
+    // timeout. A lock older than this is treated as abandoned -- a run that was
+    // killed by the platform without ever reaching runPipelineSafely's `finally` --
+    // and the connection becomes eligible again rather than staying stuck forever.
+    const PIPELINE_LOCK_TTL_MS = 20 * 60 * 1000;
+    try {
+      const { results: rows } = await env.DB.prepare(
+        `SELECT c.*, cc.config_json FROM connections c LEFT JOIN connection_config cc ON cc.connection_id = c.id`
+      ).all();
+      const now = Date.now();
+      const due = [];
+      for (const r of rows) {
+        if (!computeDue(r.sync_freq, r.last_pipeline_run_at)) continue;
+        if (r.pipeline_lock_at) {
+          const lockMs = sqliteTimeToMs(r.pipeline_lock_at);
+          if (!Number.isNaN(lockMs) && now - lockMs < PIPELINE_LOCK_TTL_MS) continue; // genuinely still running, skip this tick
+          // Stale lock -- the run that set it never cleared it (likely killed by the
+          // platform mid-run). Log it so a silent kill isn't invisible, then retry.
+          await logConnectionEvent(
+            env, r.id, "sync_failed", "error", "Sync failed",
+            "A previous run did not finish within the expected window and was treated as failed. Retrying now.",
+            "scheduled"
+          ).catch(() => {});
+        }
+        due.push(r);
+      }
+      console.log(`[scheduled] ${due.length}/${rows.length} connection(s) due`);
+      for (const conn of due) {
+        await runPipelineSafely(env, conn, null);
+      }
+    } catch (e) {
+      console.error(`ERROR: scheduled() failed before/outside any per-connection run: ${e.message}`);
     }
   },
 };
