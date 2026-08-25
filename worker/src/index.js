@@ -935,6 +935,8 @@ function relativeAgeLabel(iso) {
 // silently wiped by the next run's fresh LLM verdict. Both are fixed by diffing
 // against the previous report: only genuinely-new sessions get notified/captured, and
 // human tags on sessions the new run still recognizes are carried forward.
+const REPORT_RETENTION_DAYS = 21; // safely past the pipeline's widest lookback (14-day macro window)
+
 async function saveGeneratedReport(env, { ownerEmail, connectionId, generatedAt, macroThemes, microFindings, themePrompt, sessionPrompt, captureCount, triggerLabel }) {
   const goalsResult = await resolveGoals(env, ownerEmail, microFindings || []);
   const tagsResult = await resolveTags(env, ownerEmail, goalsResult.findings);
@@ -961,8 +963,21 @@ async function saveGeneratedReport(env, { ownerEmail, connectionId, generatedAt,
     }
     bySession.set(f.session_id, f);
   }
-  const mergedMicro = Array.from(bySession.values());
+  // Bound growth: this report row now accumulates across every run instead of being
+  // replaced each time (needed for the dedup/tag-preservation above), so without a
+  // cutoff it would grow without limit on an unattended, forever-running cron and
+  // eventually exceed D1's per-row size limit. Nothing outside REPORT_RETENTION_DAYS
+  // can be a HogQL candidate again anyway (the widest lookback this pipeline ever
+  // queries is the 14-day macro window), so pruning past that loses no live utility.
+  const retentionCutoffMs = Date.now() - REPORT_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const mergedMicro = Array.from(bySession.values()).filter(f => {
+    const startedMs = Date.parse(f.started_at);
+    return Number.isNaN(startedMs) || startedMs >= retentionCutoffMs; // keep if unparseable rather than silently drop
+  });
 
+  if (!Array.isArray(macroThemes)) {
+    console.error(`[report] WARNING: non-array macro_themes for ${ownerEmail} (connection ${connectionId}) -- keeping the previous report's themes instead of storing a malformed value`);
+  }
   await env.DB.prepare(
     `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
@@ -1032,14 +1047,8 @@ const PIPELINE_MICRO_WINDOW = "3 DAY";
 const PIPELINE_SESSION_WINDOW = "4 DAY"; // micro window + 1 day
 
 async function runPipelineForConnection(env, conn) {
-  // Lock (not the heartbeat -- see runPipelineSafely): stamp pipeline_lock_at BEFORE
-  // doing any real work. last_pipeline_run_at is left alone here -- it only means
-  // "last successful completion" (set by saveGeneratedReport), which is what
-  // computeDue needs to decide the NEXT due time. pipeline_lock_at is a separate,
-  // short-lived "currently running" flag scheduled() checks so a run that outlives
-  // one cron tick can't be picked up a second time before it finishes.
-  await env.DB.prepare("UPDATE connections SET pipeline_lock_at = datetime('now') WHERE id = ?").bind(conn.id).run();
-
+  // Locking happens in runPipelineSafely, which owns the whole acquire/release
+  // lifecycle for both this and the targeted variant -- see there for why.
   const region = conn.region;
   const projectId = conn.project_id;
   const apiKey = await decryptSecret(env, conn.encrypted_api_key, conn.iv);
@@ -1133,11 +1142,7 @@ async function runPipelineForConnection(env, conn) {
 }
 
 async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
-  // Same lock rationale as runPipelineForConnection: stamps pipeline_lock_at
-  // (not last_pipeline_run_at) before any real work, so two overlapping manual
-  // run-now calls on the same connection can't race each other's D1 writes.
-  await env.DB.prepare("UPDATE connections SET pipeline_lock_at = datetime('now') WHERE id = ?").bind(conn.id).run();
-
+  // Locking happens in runPipelineSafely -- see there.
   const region = conn.region;
   const projectId = conn.project_id;
   const apiKey = await decryptSecret(env, conn.encrypted_api_key, conn.iv);
@@ -1241,7 +1246,45 @@ async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
   return { sessions: resolvedFindings.length, tasks: taskCount, real_bugs: realBugCount };
 }
 
+// How long a lock is honored before it's treated as abandoned (the run that set it
+// was killed by the platform mid-flight and never reached this function's `finally`).
+// Scaled to the connection's own sync_max_sessions rather than a flat guess: the
+// worst case is one macro call plus one call per session, each up to the 120s API
+// timeout, so a fixed TTL would either falsely reclaim a legitimately slow large
+// run (double-running it) or wait far too long for a small one to self-heal.
+function pipelineLockTtlMs(conn) {
+  const sessionCount = conn.sync_max_sessions || 8;
+  return (sessionCount + 1) * 130 * 1000; // +1 for the macro call; 130s/call gives headroom above the 120s API timeout
+}
+
+function toSqliteTime(date) {
+  return date.toISOString().slice(0, 19).replace("T", " "); // matches D1's own datetime('now') format
+}
+
+// Atomic acquire via a conditional UPDATE (not read-then-write) so two entry points
+// racing for the same connection -- a cron tick and a manual run-now call, or two
+// overlapping cron ticks -- can't both believe they hold the lock. Returns whether
+// THIS call acquired it.
+async function acquirePipelineLock(env, connId, ttlMs) {
+  const cutoff = toSqliteTime(new Date(Date.now() - ttlMs));
+  const result = await env.DB.prepare(
+    `UPDATE connections SET pipeline_lock_at = datetime('now')
+     WHERE id = ? AND (pipeline_lock_at IS NULL OR pipeline_lock_at < ?)`
+  ).bind(connId, cutoff).run();
+  return (result.meta?.changes || 0) > 0;
+}
+
+async function releasePipelineLock(env, connId) {
+  await env.DB.prepare("UPDATE connections SET pipeline_lock_at = NULL WHERE id = ?").bind(connId).run().catch(() => {});
+}
+
 async function runPipelineSafely(env, conn, sessionIds) {
+  const ttlMs = pipelineLockTtlMs(conn);
+  const acquired = await acquirePipelineLock(env, conn.id, ttlMs);
+  if (!acquired) {
+    console.log(`[scheduled] connection #${conn.id} already has an active lock, skipping this tick`);
+    return { ok: true, skipped: true, reason: "already running" };
+  }
   try {
     const result = sessionIds
       ? await runPipelineForConnectionTargeted(env, conn, sessionIds)
@@ -1254,7 +1297,7 @@ async function runPipelineSafely(env, conn, sessionIds) {
   } finally {
     // Always clear the lock, success or failure, so a genuinely-finished run never
     // blocks the next legitimate one.
-    await env.DB.prepare("UPDATE connections SET pipeline_lock_at = NULL WHERE id = ?").bind(conn.id).run().catch(() => {});
+    await releasePipelineLock(env, conn.id);
   }
 }
 
@@ -1338,7 +1381,7 @@ export default {
 
     if (pathname === "/api/report" && request.method === "POST") {
       const auth = request.headers.get("authorization") || "";
-      if (auth !== `Bearer ${env.BUGRADAR_API_SECRET}`) {
+      if (!env.BUGRADAR_API_SECRET || auth !== `Bearer ${env.BUGRADAR_API_SECRET}`) {
         return json({ error: "unauthorized" }, 401);
       }
       const body = await request.json();
@@ -2291,13 +2334,15 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    // PIPELINE_LOCK_TTL_MS: how long a connection is treated as "actively running"
-    // (skipped by the next tick) after pipeline_lock_at is stamped. Generous upper
-    // bound even for the largest sync_max_sessions (100) at the 120s-per-call LLM
-    // timeout. A lock older than this is treated as abandoned -- a run that was
-    // killed by the platform without ever reaching runPipelineSafely's `finally` --
-    // and the connection becomes eligible again rather than staying stuck forever.
-    const PIPELINE_LOCK_TTL_MS = 20 * 60 * 1000;
+    // The real re-entry guarantee is runPipelineSafely's atomic lock acquire (a
+    // conditional UPDATE) -- it's what actually prevents two overlapping runs for the
+    // same connection, from any entry point (this cron tick, another cron tick still
+    // in flight, or a manual run-now call). What happens here is a cheap pre-filter
+    // (skip an obviously-still-locked connection without even trying to acquire) plus
+    // observability: a lock that's older than this connection's own worst-case run
+    // time almost certainly means the run that set it was killed by the platform
+    // before ever reaching runPipelineSafely's `finally` -- log that so a silent kill
+    // isn't invisible, then let it be retried like any other due connection.
     try {
       const { results: rows } = await env.DB.prepare(
         `SELECT c.*, cc.config_json FROM connections c LEFT JOIN connection_config cc ON cc.connection_id = c.id`
@@ -2308,9 +2353,7 @@ export default {
         if (!computeDue(r.sync_freq, r.last_pipeline_run_at)) continue;
         if (r.pipeline_lock_at) {
           const lockMs = sqliteTimeToMs(r.pipeline_lock_at);
-          if (!Number.isNaN(lockMs) && now - lockMs < PIPELINE_LOCK_TTL_MS) continue; // genuinely still running, skip this tick
-          // Stale lock -- the run that set it never cleared it (likely killed by the
-          // platform mid-run). Log it so a silent kill isn't invisible, then retry.
+          if (!Number.isNaN(lockMs) && now - lockMs < pipelineLockTtlMs(r)) continue; // genuinely still running, skip this tick
           await logConnectionEvent(
             env, r.id, "sync_failed", "error", "Sync failed",
             "A previous run did not finish within the expected window and was treated as failed. Retrying now.",
