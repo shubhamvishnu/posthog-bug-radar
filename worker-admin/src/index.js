@@ -1,8 +1,5 @@
 const SESSION_COOKIE = "bugradar_admin_session";
 const SESSION_DAYS = 30;
-const OTP_TTL_MS = 10 * 60 * 1000;
-const OTP_RESEND_COOLDOWN_MS = 30 * 1000;
-const OTP_MAX_ATTEMPTS = 5;
 const ADMIN_EMAIL = "shubhamvishnu@gmail.com";
 
 function json(data, status = 200, extraHeaders = {}) {
@@ -27,6 +24,40 @@ function sqliteTimeToMs(sqliteText) {
   return Date.parse(sqliteText.replace(" ", "T") + "Z");
 }
 
+// Cloudflare Workers' crypto.subtle.deriveBits refuses PBKDF2 with more than
+// 100000 iterations ("iteration counts above 100000 are not supported"), but
+// the design spec calls for 210000. crypto.subtle.sign (HMAC) has no such cap,
+// so PBKDF2 is computed manually via the standard iterative-HMAC construction
+// (RFC 8018 5.2, one block since SHA-256's 32-byte output == the 32-byte key
+// length needed). Verified byte-identical to Node's crypto.pbkdf2Sync at
+// 210000 iterations before deploying this.
+async function pbkdf2Hash(password, saltHex) {
+  const saltBytes = new Uint8Array(saltHex.match(/.{2}/g).map(b => parseInt(b, 16)));
+  const iterations = 210000;
+  const key = await crypto.subtle.importKey(
+    "raw", new TextEncoder().encode(password), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
+  );
+  const blockIndex = new Uint8Array([0, 0, 0, 1]);
+  const initial = new Uint8Array(saltBytes.length + 4);
+  initial.set(saltBytes, 0);
+  initial.set(blockIndex, saltBytes.length);
+
+  let u = new Uint8Array(await crypto.subtle.sign("HMAC", key, initial));
+  const t = new Uint8Array(u);
+  for (let i = 1; i < iterations; i++) {
+    u = new Uint8Array(await crypto.subtle.sign("HMAC", key, u));
+    for (let j = 0; j < t.length; j++) t[j] ^= u[j];
+  }
+  return Array.from(t).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function timingSafeEqual(a, b) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 async function getSessionEmail(request, env) {
   const token = getCookie(request, SESSION_COOKIE);
   if (!token) return null;
@@ -43,95 +74,52 @@ async function adminAuthed(request, env) {
   return email === ADMIN_EMAIL;
 }
 
-function randomOtp() {
-  const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  return String(100000 + (buf[0] % 900000));
-}
-
-async function sendOtpEmail(env, email, code) {
-  const from = env.RESEND_FROM || "Bug Radar Admin <login@revsight.io>";
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${env.RESEND_API_KEY}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      from,
-      to: email,
-      subject: "Your Bug Radar Admin login code",
-      html: `<div style="font-family:-apple-system,sans-serif;font-size:15px;color:#1a1712">
-        <p>Your admin login code is:</p>
-        <p style="font-size:32px;font-weight:700;letter-spacing:6px;font-family:monospace">${code}</p>
-        <p style="color:#6b6860;font-size:13px">This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>
-      </div>`,
-    }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Resend ${res.status}: ${text}`);
-  }
-}
-
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const { pathname } = url;
 
-    if (pathname === "/api/auth/request-otp" && request.method === "POST") {
+    if (pathname === "/api/auth/login" && request.method === "POST") {
       const body = await request.json().catch(() => ({}));
       const email = String(body.email || "").trim().toLowerCase();
-      if (email !== ADMIN_EMAIL) {
-        return json({ error: "not found" }, 404);
-      }
-      const recent = await env.DB.prepare(
-        "SELECT created_at FROM otp_codes WHERE email = ? AND surface = 'admin' ORDER BY id DESC LIMIT 1"
-      ).bind(email).first();
-      if (recent && Date.now() - sqliteTimeToMs(recent.created_at) < OTP_RESEND_COOLDOWN_MS) {
-        return json({ error: "Please wait before requesting another code." }, 429);
-      }
-      const code = randomOtp();
-      const expiresAt = new Date(Date.now() + OTP_TTL_MS).toISOString();
-      await env.DB.prepare("INSERT INTO otp_codes (email, code, expires_at, surface) VALUES (?, ?, ?, 'admin')")
-        .bind(email, code, expiresAt)
-        .run();
-      try {
-        await sendOtpEmail(env, email, code);
-      } catch (e) {
-        return json({ error: "Could not send the email. Try again in a moment." }, 502);
-      }
-      return json({ ok: true });
-    }
+      const password = String(body.password || "");
+      if (email !== ADMIN_EMAIL) return json({ error: "Incorrect email or password." }, 401);
 
-    if (pathname === "/api/auth/verify-otp" && request.method === "POST") {
-      const body = await request.json().catch(() => ({}));
-      const email = String(body.email || "").trim().toLowerCase();
-      const code = String(body.code || "").trim();
-      if (email !== ADMIN_EMAIL) {
-        return json({ error: "That code doesn't match." }, 401);
-      }
-      const row = await env.DB.prepare(
-        "SELECT * FROM otp_codes WHERE email = ? AND consumed = 0 AND surface = 'admin' ORDER BY id DESC LIMIT 1"
+      const attemptRow = await env.DB.prepare(
+        "SELECT failed_count, locked_until FROM admin_login_attempts WHERE email = ?"
       ).bind(email).first();
-      if (!row || Date.parse(row.expires_at) < Date.now()) {
-        return json({ error: "That code has expired. Request a new one." }, 401);
+      if (attemptRow && attemptRow.locked_until && Date.parse(attemptRow.locked_until) > Date.now()) {
+        return json({ error: "Too many attempts. Try again in 15 minutes." }, 429);
       }
-      if (row.attempts >= OTP_MAX_ATTEMPTS) {
-        return json({ error: "Too many attempts. Request a new code." }, 401);
+
+      const [saltHex, expectedHashHex] = String(env.ADMIN_PASSWORD_HASH || "").split(":");
+      const candidateHashHex = saltHex ? await pbkdf2Hash(password, saltHex) : "";
+      const ok = !!saltHex && !!expectedHashHex && timingSafeEqual(candidateHashHex, expectedHashHex);
+
+      if (!ok) {
+        const failedCount = (attemptRow?.failed_count || 0) + 1;
+        const lockedUntil = failedCount >= 5 ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
+        await env.DB.prepare(
+          `INSERT INTO admin_login_attempts (email, failed_count, locked_until, updated_at)
+           VALUES (?, ?, ?, datetime('now'))
+           ON CONFLICT(email) DO UPDATE SET failed_count = ?, locked_until = ?, updated_at = datetime('now')`
+        ).bind(email, failedCount, lockedUntil, failedCount, lockedUntil).run();
+        return json({ error: "Incorrect email or password." }, 401);
       }
-      if (row.code !== code) {
-        await env.DB.prepare("UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?").bind(row.id).run();
-        return json({ error: "That code doesn't match." }, 401);
-      }
-      await env.DB.prepare("UPDATE otp_codes SET consumed = 1 WHERE id = ?").bind(row.id).run();
+
+      await env.DB.prepare(
+        `INSERT INTO admin_login_attempts (email, failed_count, locked_until, updated_at)
+         VALUES (?, 0, NULL, datetime('now'))
+         ON CONFLICT(email) DO UPDATE SET failed_count = 0, locked_until = NULL, updated_at = datetime('now')`
+      ).bind(email).run();
+
       await env.DB.prepare("INSERT OR IGNORE INTO users (email) VALUES (?)").bind(email).run();
       const token = crypto.randomUUID();
       const maxAge = SESSION_DAYS * 24 * 60 * 60;
       const expiresAt = new Date(Date.now() + maxAge * 1000).toISOString();
-      await env.DB.prepare("INSERT INTO sessions (token, email, expires_at, surface) VALUES (?, ?, ?, 'admin')")
-        .bind(token, email, expiresAt)
-        .run();
+      await env.DB.prepare(
+        "INSERT INTO sessions (token, email, expires_at, surface) VALUES (?, ?, ?, 'admin')"
+      ).bind(token, email, expiresAt).run();
       return json({ ok: true, email }, 200, { "set-cookie": sessionCookieHeader(token, maxAge) });
     }
 
