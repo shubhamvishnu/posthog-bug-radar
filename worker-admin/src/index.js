@@ -427,6 +427,34 @@ export default {
       });
     }
 
+    async function proxyJsonToMain(env, path, request) {
+      const init = {
+        method: request.method,
+        headers: { authorization: `Bearer ${env.ADMIN_MEDIA_SECRET}`, "content-type": "application/json" },
+      };
+      if (request.method === "PUT") init.body = await request.text();
+      const upstream = await env.MAIN_WORKER.fetch(new Request(`${env.MAIN_WORKER_URL}${path}`, init));
+      const body = await upstream.text();
+      return new Response(body, { status: upstream.status, headers: { "content-type": "application/json" } });
+    }
+
+    if (pathname === "/api/admin/ai-providers" && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      return proxyJsonToMain(env, "/api/admin/ai-providers", request);
+    }
+
+    const aiProviderPutMatch = pathname.match(/^\/api\/admin\/ai-providers\/([^/]+)$/);
+    if (aiProviderPutMatch && request.method === "PUT") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      return proxyJsonToMain(env, `/api/admin/ai-providers/${aiProviderPutMatch[1]}`, request);
+    }
+
+    const aiTenantConfigMatch = pathname.match(/^\/api\/admin\/ai-config\/([^/]+)$/);
+    if (aiTenantConfigMatch && (request.method === "GET" || request.method === "PUT" || request.method === "DELETE")) {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      return proxyJsonToMain(env, `/api/admin/ai-config/${aiTenantConfigMatch[1]}`, request);
+    }
+
     return env.ASSETS.fetch(request);
   },
 };
