@@ -23,5 +23,6 @@
   ],
   "vars": {
     "RESEND_FROM": "Bug Radar <login@revsight.io>"
-  }
+  },
+  "triggers": { "crons": ["*/5 * * * *"] }
 }

@@ -926,6 +926,288 @@ function relativeAgeLabel(iso) {
   return hrs < 24 ? `${hrs}h` : `${Math.round(hrs / 24)}d`;
 }
 
+async function saveGeneratedReport(env, { ownerEmail, connectionId, generatedAt, macroThemes, microFindings, themePrompt, sessionPrompt, captureCount, triggerLabel }) {
+  const goalsResult = await resolveGoals(env, ownerEmail, microFindings || []);
+  const tagsResult = await resolveTags(env, ownerEmail, goalsResult.findings);
+  const resolvedFindings = tagsResult.findings;
+  await env.DB.prepare(
+    `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      generatedAt,
+      JSON.stringify(macroThemes || []),
+      JSON.stringify(resolvedFindings),
+      themePrompt || null,
+      sessionPrompt || null,
+      ownerEmail,
+      connectionId || null
+    )
+    .run();
+  if (connectionId) {
+    await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(connectionId).run();
+    const taskCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).length, 0);
+    const realBugCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).filter(t => t.real_bug).length, 0);
+    const outreachCount = resolvedFindings.filter(f => f.recommended_outreach).length;
+    await logConnectionEvent(
+      env, connectionId, "sync_completed", "success", "Sync completed",
+      `Pulled ${resolvedFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount || 0} moments queued.`,
+      triggerLabel || "scheduled"
+    );
+  }
+  await postSlackNotifications(env, ownerEmail, resolvedFindings);
+  return { ok: true, findings: resolvedFindings };
+}
+
+const CAPTURE_REPO = "shubhamvishnu/posthog-bug-radar";
+
+async function triggerCaptureViaGithub(env, sessionId, keyTimestamp, connectionId, taskIndex) {
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${CAPTURE_REPO}/actions/workflows/capture-screenshot.yml/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.GITHUB_TOKEN}`,
+          accept: "application/vnd.github+json",
+          "content-type": "application/json",
+          "user-agent": "bug-radar-worker",
+        },
+        body: JSON.stringify({
+          ref: "main",
+          inputs: {
+            session_id: sessionId,
+            key_timestamp: keyTimestamp,
+            connection_id: String(connectionId),
+            task_index: String(taskIndex),
+          },
+        }),
+      }
+    );
+    if (!res.ok) {
+      console.error(`[capture] dispatch failed for ${sessionId} task ${taskIndex}: ${res.status} ${await res.text()}`);
+      return;
+    }
+    console.log(`[capture] triggered for ${sessionId} task ${taskIndex}`);
+  } catch (e) {
+    console.error(`[capture] WARNING: could not trigger for ${sessionId} task ${taskIndex}: ${e.message}`);
+  }
+}
+
+const PIPELINE_MACRO_WINDOW = "14 DAY";
+const PIPELINE_MICRO_WINDOW = "3 DAY";
+const PIPELINE_SESSION_WINDOW = "4 DAY"; // micro window + 1 day, matches bug_radar.py's session_window default
+
+async function runPipelineForConnection(env, conn) {
+  // Heartbeat: stamp last_pipeline_run_at BEFORE doing any real work, matching
+  // bug_radar.py's /touch call. Without this, a run that takes longer than one
+  // 5-minute cron tick would still show as "due" to the next tick (computeDue
+  // only sees the final post-completion timestamp otherwise), causing the same
+  // connection to be picked up and run twice concurrently.
+  await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(conn.id).run();
+
+  const region = conn.region;
+  const projectId = conn.project_id;
+  const apiKey = await decryptSecret(env, conn.encrypted_api_key, conn.iv);
+  const identity = {
+    email: conn.identity_email_prop,
+    name: conn.identity_name_prop,
+    role: conn.identity_role_prop,
+  };
+  const customEvents = (conn.config_json ? JSON.parse(conn.config_json) : {}).customEvents || [];
+  const sessionLimit = conn.sync_max_sessions || 8;
+
+  const companyRow = await env.DB.prepare("SELECT description FROM company_knowledge WHERE owner_email = ?").bind(conn.owner_email).first();
+  const companyContext = companyRow?.description || "No company description saved yet — treat this as a generic web product.";
+
+  const { results: goalRows } = await env.DB.prepare("SELECT id, purpose, description, tags FROM goals WHERE owner_email = ? ORDER BY id").bind(conn.owner_email).all();
+  const goals = goalRows.map(g => ({ ...g, tags: JSON.parse(g.tags || "[]") }));
+  const goalsContext = goals.length
+    ? JSON.stringify(goals.map(g => ({ id: g.id, purpose: g.purpose, description: g.description, tags: g.tags })))
+    : "(none yet — every task in this run should propose a new_goal)";
+
+  const { results: tagRows } = await env.DB.prepare("SELECT id, label FROM tags WHERE owner_email = ? ORDER BY id").bind(conn.owner_email).all();
+  const tagsContext = tagRows.length
+    ? JSON.stringify(tagRows.map(t => ({ id: t.id, label: t.label })))
+    : "(none yet — propose a new_tag for any task that clearly needs one)";
+
+  const aiConfig = await resolveAiConfig(env, conn.owner_email);
+  console.log(`[llm] routing through ${aiConfig.provider} / ${aiConfig.model} for ${conn.owner_email}`);
+  console.log(`[connection] #${conn.id} ${conn.project_name} (${region}) owner=${conn.owner_email}`);
+
+  const clusters = await fetchMacroClusters(region, apiKey, projectId, PIPELINE_MACRO_WINDOW, 25);
+  const themePrompt = themePromptFor(companyContext, JSON.stringify(clusters));
+  const themes = await callLlm(themePrompt, aiConfig);
+
+  const candidates = await fetchCandidateSessions(region, apiKey, projectId, PIPELINE_MICRO_WINDOW, sessionLimit, identity);
+
+  const findings = [];
+  const pendingCaptures = [];
+  for (const c of candidates) {
+    const sid = c.session_id;
+    const events = await fetchSessionEvents(region, apiKey, projectId, sid, PIPELINE_SESSION_WINDOW, customEvents);
+    if (!events.length) continue;
+    const sessionPrompt = sessionPromptFor(companyContext, goalsContext, tagsContext, JSON.stringify(events));
+    const result = await callLlm(sessionPrompt, aiConfig);
+    const finding = {
+      session_id: sid,
+      replay_url: `${PH_REGIONS[region]}/project/${projectId}/replay/${sid}`,
+      started_at: c.started_at,
+      person: { person_id: c.person_id, email: c.email, name: c.name, role: c.role },
+      triage_counts: { dead_clicks: c.dead_clicks, rage_clicks: c.rage_clicks, exceptions: c.exceptions },
+      events,
+      tasks: result.tasks || [],
+      recommended_outreach: result.recommended_outreach || null,
+    };
+    (finding.tasks || []).forEach((task, idx) => {
+      if (task.outcome === "blocked" || task.severity === "high") {
+        pendingCaptures.push([sid, task.key_timestamp || c.started_at, idx]);
+      }
+    });
+    findings.push(finding);
+  }
+
+  const generatedAt = new Date().toISOString();
+  const sessionPromptSample = sessionPromptFor(companyContext, goalsContext, tagsContext, "<per-session events>");
+  await saveGeneratedReport(env, {
+    ownerEmail: conn.owner_email,
+    connectionId: conn.id,
+    generatedAt,
+    macroThemes: themes,
+    microFindings: findings,
+    themePrompt,
+    sessionPrompt: sessionPromptSample,
+    captureCount: pendingCaptures.length,
+    triggerLabel: "scheduled",
+  });
+
+  for (const [sid, keyTs, idx] of pendingCaptures) {
+    await triggerCaptureViaGithub(env, sid, keyTs, conn.id, idx);
+  }
+
+  const totalTasks = findings.reduce((n, f) => n + f.tasks.length, 0);
+  const realBugs = findings.reduce((n, f) => n + f.tasks.filter(t => t.real_bug).length, 0);
+  console.log(`[done] connection #${conn.id}: ${themes.length} macro themes, ${findings.length} sessions -> ${totalTasks} tasks, ${realBugs} real bugs`);
+  return { themes: themes.length, sessions: findings.length, tasks: totalTasks, real_bugs: realBugs };
+}
+
+async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
+  const region = conn.region;
+  const projectId = conn.project_id;
+  const apiKey = await decryptSecret(env, conn.encrypted_api_key, conn.iv);
+  const identity = {
+    email: conn.identity_email_prop,
+    name: conn.identity_name_prop,
+    role: conn.identity_role_prop,
+  };
+  const customEvents = (conn.config_json ? JSON.parse(conn.config_json) : {}).customEvents || [];
+
+  const companyRow = await env.DB.prepare("SELECT description FROM company_knowledge WHERE owner_email = ?").bind(conn.owner_email).first();
+  const companyContext = companyRow?.description || "No company description saved yet — treat this as a generic web product.";
+
+  const { results: goalRows } = await env.DB.prepare("SELECT id, purpose, description, tags FROM goals WHERE owner_email = ? ORDER BY id").bind(conn.owner_email).all();
+  const goals = goalRows.map(g => ({ ...g, tags: JSON.parse(g.tags || "[]") }));
+  const goalsContext = goals.length
+    ? JSON.stringify(goals.map(g => ({ id: g.id, purpose: g.purpose, description: g.description, tags: g.tags })))
+    : "(none yet — every task in this run should propose a new_goal)";
+
+  const { results: tagRows } = await env.DB.prepare("SELECT id, label FROM tags WHERE owner_email = ? ORDER BY id").bind(conn.owner_email).all();
+  const tagsContext = tagRows.length
+    ? JSON.stringify(tagRows.map(t => ({ id: t.id, label: t.label })))
+    : "(none yet — propose a new_tag for any task that clearly needs one)";
+
+  const aiConfig = await resolveAiConfig(env, conn.owner_email);
+  const candidates = await fetchSessionsById(region, apiKey, projectId, sessionIds, identity, 30);
+
+  const findings = [];
+  const pendingCaptures = [];
+  for (const c of candidates) {
+    const sid = c.session_id;
+    const events = await fetchSessionEvents(region, apiKey, projectId, sid, "30 DAY", customEvents);
+    if (!events.length) continue;
+    const sessionPrompt = sessionPromptFor(companyContext, goalsContext, tagsContext, JSON.stringify(events));
+    const result = await callLlm(sessionPrompt, aiConfig);
+    const finding = {
+      session_id: sid,
+      replay_url: `${PH_REGIONS[region]}/project/${projectId}/replay/${sid}`,
+      started_at: c.started_at,
+      person: { person_id: c.person_id, email: c.email, name: c.name, role: c.role },
+      triage_counts: { dead_clicks: c.dead_clicks, rage_clicks: c.rage_clicks, exceptions: c.exceptions },
+      events,
+      tasks: result.tasks || [],
+      recommended_outreach: result.recommended_outreach || null,
+    };
+    (finding.tasks || []).forEach((task, idx) => {
+      if (task.outcome === "blocked" || task.severity === "high") {
+        pendingCaptures.push([sid, task.key_timestamp || c.started_at, idx]);
+      }
+    });
+    findings.push(finding);
+  }
+
+  const sessionPromptSample = sessionPromptFor(companyContext, goalsContext, tagsContext, "<per-session events>");
+  const goalsResult = await resolveGoals(env, conn.owner_email, findings);
+  const tagsResult = await resolveTags(env, conn.owner_email, goalsResult.findings);
+  const resolvedFindings = tagsResult.findings;
+
+  const base = await env.DB.prepare("SELECT * FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1").bind(conn.owner_email).first();
+  const baseMicro = base ? JSON.parse(base.micro_findings) : [];
+  const baseMacro = base ? JSON.parse(base.macro_themes) : [];
+  const bySession = new Map(baseMicro.map(f => [f.session_id, f]));
+  for (const f of resolvedFindings) {
+    const old = bySession.get(f.session_id);
+    if (old) {
+      (old.tasks || []).forEach((oldTask, i) => {
+        const userTags = (oldTask.tags || []).filter(tg => tg.assign === "user");
+        if (userTags.length && f.tasks && f.tasks[i]) {
+          const newTask = f.tasks[i];
+          newTask.tags = newTask.tags || [];
+          for (const ut of userTags) {
+            if (!newTask.tags.some(tg => tg.tag_id === ut.tag_id)) newTask.tags.push(ut);
+          }
+        }
+      });
+    }
+    bySession.set(f.session_id, f);
+  }
+  const mergedMicro = Array.from(bySession.values());
+  await env.DB.prepare(
+    `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    new Date().toISOString(), JSON.stringify(baseMacro), JSON.stringify(mergedMicro),
+    base ? base.theme_prompt : null, sessionPromptSample, conn.owner_email, conn.id
+  ).run();
+  await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(conn.id).run();
+  const taskCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).length, 0);
+  const realBugCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).filter(t => t.real_bug).length, 0);
+  const outreachCount = resolvedFindings.filter(f => f.recommended_outreach).length;
+  await logConnectionEvent(
+    env, conn.id, "sync_completed", "success", "Sync completed",
+    `Pulled ${resolvedFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${pendingCaptures.length} moments queued.`,
+    "manual · targeted"
+  );
+  await postSlackNotifications(env, conn.owner_email, resolvedFindings);
+
+  for (const [sid, keyTs, idx] of pendingCaptures) {
+    await triggerCaptureViaGithub(env, sid, keyTs, conn.id, idx);
+  }
+  return { sessions: resolvedFindings.length, tasks: taskCount, real_bugs: realBugCount };
+}
+
+async function runPipelineSafely(env, conn, sessionIds) {
+  try {
+    const result = sessionIds
+      ? await runPipelineForConnectionTargeted(env, conn, sessionIds)
+      : await runPipelineForConnection(env, conn);
+    return { ok: true, ...result };
+  } catch (e) {
+    console.error(`ERROR: pipeline run failed for connection ${conn.id}: ${e.message}`);
+    await logConnectionEvent(env, conn.id, "sync_failed", "error", "Sync failed", e.message || "Unknown error", sessionIds ? "manual · targeted" : "scheduled").catch(() => {});
+    return { ok: false, error: e.message };
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -1011,36 +1293,17 @@ export default {
       }
       const body = await request.json();
       const ownerEmail = body.owner_email || DEFAULT_OWNER_EMAIL;
-      const goalsResult = await resolveGoals(env, ownerEmail, body.micro_findings || []);
-      const tagsResult = await resolveTags(env, ownerEmail, goalsResult.findings);
-      const resolvedFindings = tagsResult.findings;
-      await env.DB.prepare(
-        `INSERT INTO reports (generated_at, macro_themes, micro_findings, theme_prompt, session_prompt, owner_email, connection_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-        .bind(
-          body.generated_at,
-          JSON.stringify(body.macro_themes || []),
-          JSON.stringify(resolvedFindings),
-          body.theme_prompt || null,
-          body.session_prompt || null,
-          ownerEmail,
-          body.connection_id || null
-        )
-        .run();
-      if (body.connection_id) {
-        await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(body.connection_id).run();
-        const taskCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).length, 0);
-        const realBugCount = resolvedFindings.reduce((n, f) => n + (f.tasks || []).filter(t => t.real_bug).length, 0);
-        const outreachCount = resolvedFindings.filter(f => f.recommended_outreach).length;
-        const captureCount = Number(body.capture_count) || 0;
-        await logConnectionEvent(
-          env, body.connection_id, "sync_completed", "success", "Sync completed",
-          `Pulled ${resolvedFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount} moments queued.`,
-          "scheduled"
-        );
-      }
-      await postSlackNotifications(env, ownerEmail, resolvedFindings);
+      await saveGeneratedReport(env, {
+        ownerEmail,
+        connectionId: body.connection_id || null,
+        generatedAt: body.generated_at,
+        macroThemes: body.macro_themes,
+        microFindings: body.micro_findings,
+        themePrompt: body.theme_prompt,
+        sessionPrompt: body.session_prompt,
+        captureCount: body.capture_count,
+        triggerLabel: "scheduled",
+      });
       return json({ ok: true });
     }
 
@@ -1087,6 +1350,20 @@ export default {
         identity_email_prop: conn.identity_email_prop, identity_name_prop: conn.identity_name_prop, identity_role_prop: conn.identity_role_prop,
         config: conn.config_json ? JSON.parse(conn.config_json) : null,
       });
+    }
+
+    const runNowMatch = pathname.match(/^\/api\/admin\/connections\/(\d+)\/run-now$/);
+    if (runNowMatch && request.method === "POST") {
+      if (!pipelineAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const id = Number(runNowMatch[1]);
+      const conn = await env.DB.prepare(
+        `SELECT c.*, cc.config_json FROM connections c LEFT JOIN connection_config cc ON cc.connection_id = c.id WHERE c.id = ?`
+      ).bind(id).first();
+      if (!conn) return json({ error: "not found" }, 404);
+      const body = await request.json().catch(() => ({}));
+      const sessionIds = Array.isArray(body.session_ids) && body.session_ids.length ? body.session_ids : null;
+      const result = await runPipelineSafely(env, conn, sessionIds);
+      return json(result, result.ok ? 200 : 500);
     }
 
     if (pathname === "/api/pipeline/company-knowledge" && request.method === "GET") {
@@ -1961,5 +2238,16 @@ export default {
     }
 
     return env.ASSETS.fetch(request);
+  },
+
+  async scheduled(event, env, ctx) {
+    const { results: rows } = await env.DB.prepare(
+      `SELECT c.*, cc.config_json FROM connections c LEFT JOIN connection_config cc ON cc.connection_id = c.id`
+    ).all();
+    const due = rows.filter(r => computeDue(r.sync_freq, r.last_pipeline_run_at));
+    console.log(`[scheduled] ${due.length}/${rows.length} connection(s) due`);
+    for (const conn of due) {
+      await runPipelineSafely(env, conn, null);
+    }
   },
 };
