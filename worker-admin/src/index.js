@@ -449,6 +449,12 @@ export default {
       return proxyJsonToMain(env, `/api/admin/ai-providers/${aiProviderPutMatch[1]}`, request);
     }
 
+    const aiModelsListMatch = pathname.match(/^\/api\/admin\/ai-providers\/([^/]+)\/models$/);
+    if (aiModelsListMatch && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      return proxyJsonToMain(env, `/api/admin/ai-providers/${aiModelsListMatch[1]}/models`, request);
+    }
+
     const aiTenantConfigMatch = pathname.match(/^\/api\/admin\/ai-config\/([^/]+)$/);
     if (aiTenantConfigMatch && (request.method === "GET" || request.method === "PUT" || request.method === "DELETE")) {
       if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);

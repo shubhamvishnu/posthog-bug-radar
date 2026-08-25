@@ -138,6 +138,7 @@ function getTheme() { return localStorage.getItem("bra_theme") || (matchMedia("(
 const AUTH = { email: null };
 const loginState = { email: "", password: "", error: "", submitting: false };
 const state = { view: "overview", selUserEmail: null, expandedTask: {}, expandedMoments: {}, selSessionId: null, selSessionOwner: null };
+let lastRenderedView = null;
 
 let OVERVIEW = { userCount: 0, connectionCount: 0, reportCount: 0, connectionsByStatus: {}, slackConnectedCount: 0, failingConnectionCount: 0 };
 let EVENTS = [];
@@ -244,10 +245,11 @@ function initAiProviderForms() {
   AI_PROVIDER_FORMS = {};
   for (const p of ["anthropic", "openai", "gemini"]) {
     const d = AI_PROVIDERS_DATA[p];
-    const catalog = AI_MODEL_CATALOG[p];
+    const catalog = modelsFor(p);
     const model = d.default_model || catalog[0];
     const isOther = !catalog.includes(model);
     AI_PROVIDER_FORMS[p] = { model: isOther ? "other" : model, customModel: isOther ? model : "", keyEditing: false, newKey: "", saveError: "" };
+    loadProviderModels(p);
   }
 }
 
@@ -277,7 +279,7 @@ async function loadTenantAiConfig(email) {
   if (state.selUserEmail !== email) return; // a newer click superseded this request
   if (res.ok) {
     const d = await res.json();
-    const catalog = AI_MODEL_CATALOG[d.provider];
+    const catalog = modelsFor(d.provider);
     const isOther = !catalog.includes(d.model);
     AI_TENANT_FORM = {
       provider: d.provider,
@@ -291,6 +293,7 @@ async function loadTenantAiConfig(email) {
       maskedKey: d.masked_key,
       saveError: "",
     };
+    loadProviderModels(d.provider);
   }
   render();
 }
@@ -445,6 +448,23 @@ const AI_MODEL_CATALOG = {
 };
 const AI_PROVIDER_LABEL = { anthropic: "Anthropic", openai: "OpenAI", gemini: "Gemini" };
 
+// AI_MODEL_CATALOG above is only the last-resort fallback (used if the live list fails to
+// load, e.g. no default key configured yet for that provider). Once loaded, the real,
+// live model list from that provider's own API is cached here and used instead.
+let AI_MODELS_CACHE = {};
+function modelsFor(provider) { return AI_MODELS_CACHE[provider] || AI_MODEL_CATALOG[provider]; }
+async function loadProviderModels(provider) {
+  if (AI_MODELS_CACHE[provider]) return;
+  try {
+    const res = await fetch(`/api/admin/ai-providers/${provider}/models`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.models && data.models.length) AI_MODELS_CACHE[provider] = data.models;
+    }
+  } catch (e) {}
+  render();
+}
+
 function sevOf(t) { return t.severity || "none"; }
 
 function tagChipHtml(tag) {
@@ -576,41 +596,71 @@ function renderTenantSlackSection() {
   </div>`;
 }
 
-function renderTenantAiSection() {
-  if (!AI_TENANT_FORM) return `<div class="section-title">AI Routing</div><div class="panel" style="padding:16px 18px"><div class="empty-note">Loading…</div></div>`;
+function renderTenantAiSummaryCard() {
+  const form = AI_TENANT_FORM;
+  const label = form
+    ? `${escapeHtml(AI_PROVIDER_LABEL[form.provider])} · ${escapeHtml(form.model === "other" ? form.customModel : form.model)}`
+    : "Loading…";
+  const badge = form && !form.isOverride
+    ? `<span style="margin-left:8px;font-size:10.5px;font-weight:600;color:var(--faint);background:var(--bg-sub);padding:2px 7px;border-radius:6px">ORG DEFAULT</span>`
+    : "";
+  return `
+  <div class="section-title">AI Routing</div>
+  <button data-act="nav" data-view="tenant-ai-routing" class="panel" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:14px 18px;text-align:left;cursor:pointer">
+    <span style="font-size:13.5px;font-weight:500">${label}${badge}</span>
+    <span style="color:var(--faint)">&rarr;</span>
+  </button>`;
+}
+
+function renderTenantAiRoutingScreen() {
+  const email = state.selUserEmail;
+  const crumb = `
+  <div class="pageheader">
+    <button class="crumb" data-act="nav" data-view="tenants">Tenants</button>
+    <span class="sep">/</span>
+    <button class="crumb" data-act="open-user" data-email="${escapeHtml(email || "")}">${escapeHtml(email || "")}</button>
+    <span class="sep">/</span>
+    <span class="idmono">AI Routing</span>
+  </div>`;
+  if (!AI_TENANT_FORM) return `${crumb}<div class="content contentpad"><div class="empty-note">Loading…</div></div>`;
   const form = AI_TENANT_FORM;
   const providerOptions = ["anthropic", "openai", "gemini"]
     .map(p => `<option value="${p}"${form.provider === p ? " selected" : ""}>${escapeHtml(AI_PROVIDER_LABEL[p])}</option>`).join("");
-  const catalog = AI_MODEL_CATALOG[form.provider];
+  const catalog = modelsFor(form.provider);
   const modelOptions = catalog.map(m => `<option value="${escapeHtml(m)}"${form.model === m ? " selected" : ""}>${escapeHtml(m)}</option>`).join("")
     + `<option value="other"${form.model === "other" ? " selected" : ""}>Other (custom)</option>`;
   return `
-  <div class="section-title">AI Routing${form.isOverride ? "" : `<span style="margin-left:8px;font-size:10.5px;font-weight:600;color:var(--faint);background:var(--bg-sub);padding:2px 7px;border-radius:6px">ORG DEFAULT</span>`}</div>
-  <div class="panel" style="padding:16px 18px">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <span style="font-size:12.5px;color:var(--muted);width:70px">Provider</span>
-      <select data-ai-tenant-provider style="height:34px;padding:0 8px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)">${providerOptions}</select>
+  ${crumb}
+  <div class="content contentpad">
+    <div style="font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:22px">AI Routing${form.isOverride ? "" : `<span style="margin-left:8px;font-size:11px;font-weight:600;color:var(--faint);background:var(--bg-sub);padding:3px 8px;border-radius:6px;vertical-align:middle">ORG DEFAULT</span>`}</div>
+    <div class="panel" style="padding:16px 18px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:12.5px;color:var(--muted);width:70px">Provider</span>
+        <select data-ai-tenant-provider style="height:34px;padding:0 8px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)">${providerOptions}</select>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="font-size:12.5px;color:var(--muted);width:70px">Model</span>
+        <select data-ai-tenant-model style="height:34px;padding:0 8px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)">${modelOptions}</select>
+        ${form.model === "other" ? `<input data-ai-tenant-custom-model type="text" placeholder="model-id" value="${escapeHtml(form.customModel)}" style="height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)"/>` : ""}
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:4px">
+        <span style="font-size:12.5px;color:var(--muted);width:70px">API key</span>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="radio" name="aiTenantKeyMode" data-ai-tenant-key-mode="default" ${!form.useCustomKey ? "checked" : ""}/> Org default</label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="radio" name="aiTenantKeyMode" data-ai-tenant-key-mode="custom" ${form.useCustomKey ? "checked" : ""}/> Custom for this tenant</label>
+      </div>
+      ${!form.useCustomKey ? `<div style="font-size:11.5px;color:var(--faint);margin:2px 0 10px 80px">Uses the org-wide default key for ${escapeHtml(AI_PROVIDER_LABEL[form.provider])}.</div>` : `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+        <span style="font-size:12.5px;color:var(--muted);width:70px"></span>
+        ${form.keyEditing
+          ? `<input data-ai-tenant-key-input type="password" placeholder="Paste new key" value="${escapeHtml(form.newKey)}" style="flex:1;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)"/>`
+          : `<span style="font-family:'JetBrains Mono',monospace;font-size:13px">${escapeHtml(form.hasCustomKey && form.maskedKey ? form.maskedKey : "not set")}</span>
+             <button data-act="ai-tenant-edit-key" style="font-size:12px;color:var(--accent)">Update key</button>`}
+      </div>
+      ${!form.hasCustomKey ? `<div style="font-size:11.5px;color:var(--faint);margin:2px 0 10px 80px">No custom key saved yet for this tenant — click "Update key" to set one. Until then this tenant still uses the org default key.</div>` : ""}
+      `}
+      <button data-act="ai-tenant-save" data-email="${escapeHtml(email)}" class="login-primary-btn" style="width:auto;padding:0 18px;height:34px;margin-top:6px">Save</button>
+      ${form.saveError ? `<div class="login-error">${escapeHtml(form.saveError)}</div>` : ""}
     </div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <span style="font-size:12.5px;color:var(--muted);width:70px">Model</span>
-      <select data-ai-tenant-model style="height:34px;padding:0 8px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)">${modelOptions}</select>
-      ${form.model === "other" ? `<input data-ai-tenant-custom-model type="text" placeholder="model-id" value="${escapeHtml(form.customModel)}" style="height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)"/>` : ""}
-    </div>
-    <div style="display:flex;align-items:center;gap:16px;margin-bottom:10px">
-      <span style="font-size:12.5px;color:var(--muted);width:70px">API key</span>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="radio" name="aiTenantKeyMode" data-ai-tenant-key-mode="default" ${!form.useCustomKey ? "checked" : ""}/> Org default</label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px"><input type="radio" name="aiTenantKeyMode" data-ai-tenant-key-mode="custom" ${form.useCustomKey ? "checked" : ""}/> Custom for this tenant</label>
-    </div>
-    ${form.useCustomKey ? `
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <span style="font-size:12.5px;color:var(--muted);width:70px"></span>
-      ${form.keyEditing
-        ? `<input data-ai-tenant-key-input type="password" placeholder="Paste new key" value="${escapeHtml(form.newKey)}" style="flex:1;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)"/>`
-        : `<span style="font-family:'JetBrains Mono',monospace;font-size:13px">${escapeHtml(form.hasCustomKey && form.maskedKey ? form.maskedKey : "not set")}</span>
-           <button data-act="ai-tenant-edit-key" style="font-size:12px;color:var(--accent)">Update key</button>`}
-    </div>` : ""}
-    <button data-act="ai-tenant-save" data-email="${escapeHtml(state.selUserEmail)}" class="login-primary-btn" style="width:auto;padding:0 18px;height:34px;margin-top:2px">Save</button>
-    ${form.saveError ? `<div class="login-error">${escapeHtml(form.saveError)}</div>` : ""}
   </div>`;
 }
 
@@ -630,7 +680,7 @@ function renderUserDetail() {
     <div class="section-title">Connections<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${connections.length}</span></div>
     ${connections.length ? connections.map(renderConnectionCard).join("") : `<div class="panel"><div class="empty-note">No connections yet.</div></div>`}
     <div style="margin-top:24px">${renderTenantSlackSection()}</div>
-    <div style="margin-top:24px">${renderTenantAiSection()}</div>
+    <div style="margin-top:24px">${renderTenantAiSummaryCard()}</div>
     <div style="margin-top:24px">${renderLatestReportSection()}</div>
     <div style="margin-top:24px">${renderGoalsLibrary()}</div>
     <div style="margin-top:24px">${renderTagsLibrary()}</div>
@@ -794,7 +844,7 @@ function renderAiProvidersScreen() {
 function renderAiProviderCard(provider) {
   const d = AI_PROVIDERS_DATA[provider];
   const form = AI_PROVIDER_FORMS[provider];
-  const catalog = AI_MODEL_CATALOG[provider];
+  const catalog = modelsFor(provider);
   const modelOptions = catalog.map(m => `<option value="${escapeHtml(m)}"${form.model === m ? " selected" : ""}>${escapeHtml(m)}</option>`).join("")
     + `<option value="other"${form.model === "other" ? " selected" : ""}>Other (custom)</option>`;
   return `
@@ -874,6 +924,7 @@ function renderMainContent() {
     case "overview": return renderOverview();
     case "tenants": return renderUsersTable();
     case "user-detail": return renderUserDetail();
+    case "tenant-ai-routing": return renderTenantAiRoutingScreen();
     case "integrations": return renderIntegrationsScreen();
     case "goals": return renderGoalsScreen();
     case "tags": return renderTagsScreen();
@@ -888,7 +939,7 @@ function renderMainContent() {
 
 function renderSidebar() {
   const v = state.view;
-  const isTenants = v === "tenants" || v === "user-detail";
+  const isTenants = v === "tenants" || v === "user-detail" || v === "tenant-ai-routing";
   return `
   <aside class="sidebar">
     <div class="ws-row">
@@ -927,7 +978,16 @@ function render() {
     app.innerHTML = renderLoginShell();
     return;
   }
+  // Every render fully replaces the DOM, which would otherwise reset scroll to the top
+  // on every interaction (e.g. picking a dropdown option deep in a long page). Only
+  // preserve scroll when re-rendering the SAME view -- navigating to a different view
+  // (even a shorter one) must start at the top, not carry over a stale position.
+  const prevContent = document.querySelector(".content");
+  const prevScrollTop = prevContent && state.view === lastRenderedView ? prevContent.scrollTop : 0;
+  lastRenderedView = state.view;
   app.innerHTML = `<div class="app">${renderSidebar()}<main class="main">${renderMainContent()}</main></div>`;
+  const newContent = document.querySelector(".content");
+  if (newContent) newContent.scrollTop = prevScrollTop;
 }
 
 document.addEventListener("click", e => {
@@ -973,8 +1033,9 @@ document.addEventListener("change", e => {
   }
   if (e.target.dataset.aiTenantProvider !== undefined) {
     AI_TENANT_FORM.provider = e.target.value;
-    AI_TENANT_FORM.model = AI_MODEL_CATALOG[e.target.value][0];
+    AI_TENANT_FORM.model = modelsFor(e.target.value)[0];
     AI_TENANT_FORM.customModel = "";
+    loadProviderModels(e.target.value);
     render();
   }
   if (e.target.dataset.aiTenantModel !== undefined) {

@@ -155,6 +155,46 @@ function maskKey(plaintext) {
   return `••••${plaintext.slice(-4)}`;
 }
 
+async function fetchProviderModels(provider, apiKey) {
+  if (provider === "anthropic") {
+    const res = await fetch("https://api.anthropic.com/v1/models", {
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
+    });
+    if (!res.ok) throw new Error(`anthropic models list failed: ${res.status}`);
+    const data = await res.json();
+    return (data.data || []).map(m => m.id);
+  }
+  if (provider === "openai") {
+    const res = await fetch("https://api.openai.com/v1/models", {
+      headers: { authorization: `Bearer ${apiKey}` },
+    });
+    if (!res.ok) throw new Error(`openai models list failed: ${res.status}`);
+    const data = await res.json();
+    // "gpt-" catches audio/image/realtime/transcribe/tts/search-preview endpoints too --
+    // those aren't reachable via chat.completions.create with a plain text prompt, so
+    // exclude them explicitly rather than just prefix-matching.
+    const NOT_CHAT = /audio|image|realtime|transcribe|tts|search-preview|live-transcribe/;
+    return (data.data || [])
+      .map(m => m.id)
+      .filter(id => /^gpt-/.test(id) && !NOT_CHAT.test(id))
+      .sort();
+  }
+  if (provider === "gemini") {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    if (!res.ok) throw new Error(`gemini models list failed: ${res.status}`);
+    const data = await res.json();
+    // supportedGenerationMethods includes "generateContent" for image/tts/music models too --
+    // exclude the non-text modalities explicitly, same reasoning as the OpenAI filter above.
+    const NOT_TEXT = /-image|-tts|lyria|nano-banana|robotics|computer-use/;
+    return (data.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes("generateContent"))
+      .map(m => m.name.replace(/^models\//, ""))
+      .filter(id => !NOT_TEXT.test(id))
+      .sort();
+  }
+  throw new Error(`unknown provider: ${provider}`);
+}
+
 async function getSlackBotToken(env, ownerEmail) {
   const row = await env.DB.prepare(
     "SELECT encrypted_bot_token, iv FROM slack_connections WHERE owner_email = ? AND status = 'connected'"
@@ -936,6 +976,24 @@ export default {
         ).bind(defaultModel, provider).run();
       }
       return json({ ok: true });
+    }
+
+    const modelsListMatch = pathname.match(/^\/api\/admin\/ai-providers\/([^/]+)\/models$/);
+    if (modelsListMatch && request.method === "GET") {
+      if (!adminSecretAuthed(request, env)) return json({ error: "unauthorized" }, 401);
+      const provider = modelsListMatch[1];
+      if (!AI_PROVIDERS.includes(provider)) return json({ error: "unknown provider" }, 400);
+      const def = await env.DB.prepare(
+        "SELECT encrypted_api_key, iv FROM ai_provider_defaults WHERE provider = ?"
+      ).bind(provider).first();
+      if (!def) return json({ error: "no default key configured for this provider" }, 400);
+      try {
+        const apiKey = await decryptSecret(env, def.encrypted_api_key, def.iv);
+        const models = await fetchProviderModels(provider, apiKey);
+        return json({ models });
+      } catch (e) {
+        return json({ error: e.message }, 502);
+      }
     }
 
     const tenantConfigMatch = pathname.match(/^\/api\/admin\/ai-config\/([^/]+)$/);
