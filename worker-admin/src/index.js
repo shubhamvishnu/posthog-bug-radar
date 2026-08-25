@@ -298,6 +298,61 @@ export default {
       return json({ report_history });
     }
 
+    if (pathname === "/api/sessions" && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 200, 200));
+      const { results: reportRows } = await env.DB.prepare(
+        "SELECT owner_email, generated_at, micro_findings FROM reports ORDER BY id DESC LIMIT 500"
+      ).all();
+      const sevRank = { high: 3, medium: 2, low: 1, none: 0 };
+      const sessions = [];
+      for (const row of reportRows) {
+        const findings = JSON.parse(row.micro_findings);
+        for (const f of findings) {
+          const tasks = f.tasks || [];
+          const worst = tasks.reduce((w, t) => {
+            const s = (t.severity || "none").toLowerCase();
+            return sevRank[s] > sevRank[w] ? s : w;
+          }, "none");
+          sessions.push({
+            session_id: f.session_id,
+            owner_email: row.owner_email,
+            worst_severity: worst,
+            task_count: tasks.length,
+            bug_count: tasks.filter(t => t.real_bug).length,
+            timestamp: f.key_timestamp || row.generated_at,
+          });
+        }
+      }
+      sessions.sort((a, b) => String(b.timestamp || "").localeCompare(String(a.timestamp || "")));
+      return json({ sessions: sessions.slice(0, limit), scanned_reports: reportRows.length });
+    }
+
+    const sessionDetailMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+    if (sessionDetailMatch && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const sessionId = decodeURIComponent(sessionDetailMatch[1]);
+      const ownerEmail = String(url.searchParams.get("owner_email") || "").trim().toLowerCase();
+      const { results: reportRows } = await env.DB.prepare(
+        "SELECT micro_findings FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 500"
+      ).bind(ownerEmail).all();
+      let match = null;
+      for (const row of reportRows) {
+        const findings = JSON.parse(row.micro_findings);
+        match = findings.find(f => f.session_id === sessionId);
+        if (match) break;
+      }
+      if (!match) return json({ error: "not found" }, 404);
+      const { results: goalsRaw } = await env.DB.prepare(
+        "SELECT id, purpose, description, tags, source, created_at FROM goals WHERE owner_email = ? ORDER BY id DESC"
+      ).bind(ownerEmail).all();
+      const goals = goalsRaw.map(g => ({ ...g, tags: JSON.parse(g.tags || "[]") }));
+      const { results: tags } = await env.DB.prepare(
+        "SELECT id, label, color, source, created_at FROM tags WHERE owner_email = ? ORDER BY id DESC"
+      ).bind(ownerEmail).all();
+      return json({ session: match, owner_email: ownerEmail, goals, tags });
+    }
+
     const mediaProxyMatch = pathname.match(/^\/api\/media\/(.+)$/);
     if (mediaProxyMatch && request.method === "GET") {
       if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
