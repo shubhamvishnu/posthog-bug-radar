@@ -247,7 +247,7 @@ function initAiProviderForms() {
     const catalog = AI_MODEL_CATALOG[p];
     const model = d.default_model || catalog[0];
     const isOther = !catalog.includes(model);
-    AI_PROVIDER_FORMS[p] = { model: isOther ? "other" : model, customModel: isOther ? model : "", keyEditing: false, newKey: "" };
+    AI_PROVIDER_FORMS[p] = { model: isOther ? "other" : model, customModel: isOther ? model : "", keyEditing: false, newKey: "", saveError: "" };
   }
 }
 
@@ -263,14 +263,18 @@ async function saveAiProvider(provider) {
   if (res.ok) {
     form.keyEditing = false;
     form.newKey = "";
+    form.saveError = "";
     await loadAiProviders();
   } else {
+    const data = await res.json().catch(() => ({}));
+    form.saveError = data.error || "Something went wrong. Try again.";
     render();
   }
 }
 
 async function loadTenantAiConfig(email) {
   const res = await fetch(`/api/admin/ai-config/${encodeURIComponent(email)}`);
+  if (state.selUserEmail !== email) return; // a newer click superseded this request
   if (res.ok) {
     const d = await res.json();
     const catalog = AI_MODEL_CATALOG[d.provider];
@@ -280,10 +284,12 @@ async function loadTenantAiConfig(email) {
       model: isOther ? "other" : d.model,
       customModel: isOther ? d.model : "",
       useCustomKey: d.has_custom_key,
+      hasCustomKey: d.has_custom_key,
       newKey: "",
       keyEditing: false,
       isOverride: d.is_override,
       maskedKey: d.masked_key,
+      saveError: "",
     };
   }
   render();
@@ -298,7 +304,13 @@ async function saveTenantAiConfig(email) {
   const res = await fetch(`/api/admin/ai-config/${encodeURIComponent(email)}`, {
     method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   });
-  if (res.ok) { await loadTenantAiConfig(email); } else { render(); }
+  if (res.ok) {
+    await loadTenantAiConfig(email);
+  } else {
+    const data = await res.json().catch(() => ({}));
+    form.saveError = data.error || "Something went wrong. Try again.";
+    render();
+  }
 }
 
 async function openSession(sessionId, ownerEmail) {
@@ -594,10 +606,11 @@ function renderTenantAiSection() {
       <span style="font-size:12.5px;color:var(--muted);width:70px"></span>
       ${form.keyEditing
         ? `<input data-ai-tenant-key-input type="password" placeholder="Paste new key" value="${escapeHtml(form.newKey)}" style="flex:1;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)"/>`
-        : `<span style="font-family:'JetBrains Mono',monospace;font-size:13px">${escapeHtml(form.maskedKey || "not set")}</span>
+        : `<span style="font-family:'JetBrains Mono',monospace;font-size:13px">${escapeHtml(form.hasCustomKey && form.maskedKey ? form.maskedKey : "not set")}</span>
            <button data-act="ai-tenant-edit-key" style="font-size:12px;color:var(--accent)">Update key</button>`}
     </div>` : ""}
     <button data-act="ai-tenant-save" data-email="${escapeHtml(state.selUserEmail)}" class="login-primary-btn" style="width:auto;padding:0 18px;height:34px;margin-top:2px">Save</button>
+    ${form.saveError ? `<div class="login-error">${escapeHtml(form.saveError)}</div>` : ""}
   </div>`;
 }
 
@@ -800,6 +813,7 @@ function renderAiProviderCard(provider) {
       ${form.model === "other" ? `<input data-ai-custom-model="${provider}" type="text" placeholder="model-id" value="${escapeHtml(form.customModel)}" style="height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--border-str);background:var(--bg-sub);color:var(--text)"/>` : ""}
     </div>
     <button data-act="ai-provider-save" data-provider="${provider}" class="login-primary-btn" style="width:auto;padding:0 18px;height:34px;margin-top:2px">Save</button>
+    ${form.saveError ? `<div class="login-error">${escapeHtml(form.saveError)}</div>` : ""}
   </div>`;
 }
 
