@@ -156,3 +156,20 @@ CREATE TABLE IF NOT EXISTS admin_login_attempts (
   locked_until TEXT,
   updated_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS ai_provider_defaults (
+  provider TEXT PRIMARY KEY,
+  encrypted_api_key TEXT NOT NULL,
+  iv TEXT NOT NULL,
+  default_model TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS tenant_ai_config (
+  owner_email TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  model TEXT NOT NULL,
+  encrypted_api_key TEXT,
+  iv TEXT,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
