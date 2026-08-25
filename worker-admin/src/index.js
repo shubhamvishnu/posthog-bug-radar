@@ -307,6 +307,27 @@ export default {
       return json({ connections: results });
     }
 
+    if (pathname === "/api/goals" && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 500, 500));
+      const total = (await env.DB.prepare("SELECT COUNT(*) as n FROM goals").first()).n;
+      const { results } = await env.DB.prepare(
+        "SELECT id, owner_email, purpose, description, tags, source, created_at FROM goals ORDER BY id DESC LIMIT ?"
+      ).bind(limit).all();
+      const goals = results.map(g => ({ ...g, tags: JSON.parse(g.tags || "[]") }));
+      return json({ goals, total });
+    }
+
+    if (pathname === "/api/tags" && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 500, 500));
+      const total = (await env.DB.prepare("SELECT COUNT(*) as n FROM tags").first()).n;
+      const { results: tags } = await env.DB.prepare(
+        "SELECT id, owner_email, label, color, source, created_at FROM tags ORDER BY id DESC LIMIT ?"
+      ).bind(limit).all();
+      return json({ tags, total });
+    }
+
     if (pathname === "/api/sessions" && request.method === "GET") {
       if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
       const limit = Math.max(1, Math.min(Number(url.searchParams.get("limit")) || 200, 200));
