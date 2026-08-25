@@ -1328,7 +1328,7 @@ async function runPipelineSafely(env, conn, sessionIds) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const { pathname } = url;
 
@@ -1481,8 +1481,13 @@ export default {
       if (!conn) return json({ error: "not found" }, 404);
       const body = await request.json().catch(() => ({}));
       const sessionIds = Array.isArray(body.session_ids) && body.session_ids.length ? body.session_ids : null;
-      const result = await runPipelineSafely(env, conn, sessionIds);
-      return json(result, result.ok ? 200 : 500);
+      // A full run (macro + up to sync_max_sessions session verdicts) can run well past
+      // any reasonable HTTP response window -- confirmed live, a 20-session run outran a
+      // synchronous request. ctx.waitUntil keeps the run alive after this handler returns,
+      // same pattern scheduled() below uses; check connection_events or the run's own
+      // sync_completed/sync_failed event for the actual outcome instead of this response.
+      ctx.waitUntil(runPipelineSafely(env, conn, sessionIds));
+      return json({ ok: true, started: true, connection_id: id, targeted: !!sessionIds });
     }
 
     if (pathname === "/api/pipeline/company-knowledge" && request.method === "GET") {
@@ -2368,32 +2373,49 @@ export default {
     // observability: a lock that's older than this connection's own worst-case run
     // time almost certainly means the run that set it was killed by the platform
     // before ever reaching runPipelineSafely's `finally` -- log that so a silent kill
-    // isn't invisible, then let it be retried like any other due connection.
-    try {
-      const { results: rows } = await env.DB.prepare(
-        `SELECT c.*, cc.config_json FROM connections c LEFT JOIN connection_config cc ON cc.connection_id = c.id`
-      ).all();
-      const now = Date.now();
-      const due = [];
-      for (const r of rows) {
-        if (!computeDue(r.sync_freq, r.last_pipeline_run_at)) continue;
-        if (r.pipeline_lock_at) {
-          const lockMs = sqliteTimeToMs(r.pipeline_lock_at);
-          if (!Number.isNaN(lockMs) && now - lockMs < pipelineLockTtlMs(r)) continue; // genuinely still running, skip this tick
-          await logConnectionEvent(
-            env, r.id, "sync_failed", "error", "Sync failed",
-            "A previous run did not finish within the expected window and was treated as failed. Retrying now.",
-            "scheduled"
-          ).catch(() => {});
+    // isn't invisible, then let it be retried.
+    //
+    // A stale lock makes a connection eligible for retry INDEPENDENTLY of the normal
+    // sync_freq cadence (computeDue) -- confirmed live during deploy verification: a
+    // run that never released its lock, on a connection whose last SUCCESSFUL run was
+    // recent (so computeDue alone wouldn't call it due again for a full cycle), would
+    // otherwise sit stuck until the next full sync_freq interval, defeating the entire
+    // point of the self-heal. A lock check gated behind computeDue only fires for rows
+    // that already passed the cadence check -- that ordering was the bug.
+    //
+    // The whole body runs inside ctx.waitUntil so it isn't bound to whatever duration
+    // limit applies to the scheduled() invocation itself returning -- also confirmed
+    // live: a synchronous 20-session run outran its handler's own execution window.
+    ctx.waitUntil((async () => {
+      try {
+        const { results: rows } = await env.DB.prepare(
+          `SELECT c.*, cc.config_json FROM connections c LEFT JOIN connection_config cc ON cc.connection_id = c.id`
+        ).all();
+        const now = Date.now();
+        const due = [];
+        for (const r of rows) {
+          const dueByCadence = computeDue(r.sync_freq, r.last_pipeline_run_at);
+          let dueByStaleLock = false;
+          if (r.pipeline_lock_at) {
+            const lockMs = sqliteTimeToMs(r.pipeline_lock_at);
+            if (!Number.isNaN(lockMs) && now - lockMs < pipelineLockTtlMs(r)) continue; // fresh lock -- genuinely still running, always skip
+            dueByStaleLock = true;
+            await logConnectionEvent(
+              env, r.id, "sync_failed", "error", "Sync failed",
+              "A previous run did not finish within the expected window and was treated as failed. Retrying now.",
+              "scheduled"
+            ).catch(() => {});
+          }
+          if (!dueByCadence && !dueByStaleLock) continue;
+          due.push(r);
         }
-        due.push(r);
+        console.log(`[scheduled] ${due.length}/${rows.length} connection(s) due`);
+        for (const conn of due) {
+          await runPipelineSafely(env, conn, null);
+        }
+      } catch (e) {
+        console.error(`ERROR: scheduled() failed before/outside any per-connection run: ${e.message}`);
       }
-      console.log(`[scheduled] ${due.length}/${rows.length} connection(s) due`);
-      for (const conn of due) {
-        await runPipelineSafely(env, conn, null);
-      }
-    } catch (e) {
-      console.error(`ERROR: scheduled() failed before/outside any per-connection run: ${e.message}`);
-    }
+    })());
   },
 };
