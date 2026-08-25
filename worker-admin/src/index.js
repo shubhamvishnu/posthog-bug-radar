@@ -247,6 +247,14 @@ export default {
          FROM corrections WHERE owner_email = ? ORDER BY id DESC`
       ).bind(targetEmail).all();
 
+      const slackConn = await env.DB.prepare(
+        "SELECT team_name, status FROM slack_connections WHERE owner_email = ?"
+      ).bind(targetEmail).first();
+      const slackRuleCount = (await env.DB.prepare(
+        "SELECT COUNT(*) as n FROM slack_rules WHERE owner_email = ?"
+      ).bind(targetEmail).first()).n;
+      const slack = slackConn ? { team_name: slackConn.team_name, status: slackConn.status, rule_count: slackRuleCount } : null;
+
       const connectionIds = connections.map(c => c.id);
       let events = [];
       if (connectionIds.length) {
@@ -267,7 +275,27 @@ export default {
         tags,
         corrections,
         events,
+        slack,
       });
+    }
+
+    const reportsPageMatch = pathname.match(/^\/api\/users\/([^/]+)\/reports$/);
+    if (reportsPageMatch && request.method === "GET") {
+      if (!(await adminAuthed(request, env))) return json({ error: "not authenticated" }, 401);
+      const targetEmail = decodeURIComponent(reportsPageMatch[1]).trim().toLowerCase();
+      const beforeId = Number(url.searchParams.get("before_id")) || null;
+      const { results: rows } = beforeId
+        ? await env.DB.prepare(
+            "SELECT id, connection_id, generated_at, created_at, micro_findings FROM reports WHERE owner_email = ? AND id < ? ORDER BY id DESC LIMIT 10"
+          ).bind(targetEmail, beforeId).all()
+        : await env.DB.prepare(
+            "SELECT id, connection_id, generated_at, created_at, micro_findings FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 10"
+          ).bind(targetEmail).all();
+      const report_history = rows.map(r => ({
+        id: r.id, connection_id: r.connection_id, generated_at: r.generated_at, created_at: r.created_at,
+        task_count: JSON.parse(r.micro_findings).reduce((n, f) => n + (f.tasks || []).length, 0),
+      }));
+      return json({ report_history });
     }
 
     const mediaProxyMatch = pathname.match(/^\/api\/media\/(.+)$/);
