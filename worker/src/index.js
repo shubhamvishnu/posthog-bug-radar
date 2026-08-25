@@ -431,18 +431,124 @@ async function phGet(region, apiKey, path) {
   return res.json();
 }
 
-async function hogqlPost(region, apiKey, projectId, query) {
-  const res = await fetch(`${PH_REGIONS[region]}/api/projects/${projectId}/query/`, {
-    method: "POST",
-    headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ query: { kind: "HogQLQuery", query } }),
-  });
-  if (!res.ok) {
-    const err = new Error(`PostHog ${res.status} on HogQL query`);
-    err.status = res.status;
-    throw err;
+async function hogqlPost(region, apiKey, projectId, query, retries = 3) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    const res = await fetch(`${PH_REGIONS[region]}/api/projects/${projectId}/query/`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ query: { kind: "HogQLQuery", query } }),
+    });
+    if (res.status >= 500 && attempt < retries - 1) {
+      await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+      continue;
+    }
+    if (!res.ok) {
+      const err = new Error(`PostHog ${res.status} on HogQL query`);
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
   }
-  return res.json();
+}
+
+function hogqlRows(data) {
+  const cols = data.columns;
+  return data.results.map(row => Object.fromEntries(cols.map((c, i) => [c, row[i]])));
+}
+
+function identityExprs(identity) {
+  return {
+    email: identity.email ? `any(person.properties.${identity.email})` : "NULL",
+    name: identity.name ? `any(person.properties.${identity.name})` : "NULL",
+    role: identity.role ? `any(person.properties.${identity.role})` : "NULL",
+  };
+}
+
+async function fetchMacroClusters(region, apiKey, projectId, window, limit) {
+  const data = await hogqlPost(region, apiKey, projectId, `
+    SELECT
+        properties.$pathname AS pathname,
+        properties.$el_text AS el_text,
+        count() AS clicks,
+        uniq(person_id) AS users
+    FROM events
+    WHERE event IN ('$dead_click', '$rageclick')
+      AND timestamp >= now() - INTERVAL ${window}
+    GROUP BY pathname, el_text
+    ORDER BY clicks DESC
+    LIMIT ${limit}
+  `);
+  return hogqlRows(data);
+}
+
+async function fetchCandidateSessions(region, apiKey, projectId, window, limit, identity) {
+  const ex = identityExprs(identity);
+  const data = await hogqlPost(region, apiKey, projectId, `
+    SELECT
+        properties.$session_id AS session_id,
+        countIf(event = '$dead_click') AS dead_clicks,
+        countIf(event = '$rageclick') AS rage_clicks,
+        countIf(event = '$exception') AS exceptions,
+        uniq(person_id) AS users,
+        min(timestamp) AS started_at,
+        any(person_id) AS person_id,
+        ${ex.email} AS email,
+        ${ex.name} AS name,
+        ${ex.role} AS role
+    FROM events
+    WHERE event IN ('$dead_click', '$rageclick', '$exception')
+      AND timestamp >= now() - INTERVAL ${window}
+      AND properties.$session_id IS NOT NULL
+    GROUP BY session_id
+    ORDER BY (dead_clicks + rage_clicks * 3 + exceptions * 5) DESC
+    LIMIT ${limit}
+  `);
+  return hogqlRows(data);
+}
+
+async function fetchSessionsById(region, apiKey, projectId, sessionIds, identity, lookbackDays = 30) {
+  const ex = identityExprs(identity);
+  const idList = sessionIds.map(sid => `'${sid.replace(/'/g, "''")}'`).join(", ");
+  const data = await hogqlPost(region, apiKey, projectId, `
+    SELECT
+        properties.$session_id AS session_id,
+        countIf(event = '$dead_click') AS dead_clicks,
+        countIf(event = '$rageclick') AS rage_clicks,
+        countIf(event = '$exception') AS exceptions,
+        uniq(person_id) AS users,
+        min(timestamp) AS started_at,
+        any(person_id) AS person_id,
+        ${ex.email} AS email,
+        ${ex.name} AS name,
+        ${ex.role} AS role
+    FROM events
+    WHERE properties.$session_id IN (${idList})
+      AND timestamp >= now() - INTERVAL ${lookbackDays} DAY
+    GROUP BY session_id
+  `);
+  return hogqlRows(data);
+}
+
+async function fetchSessionEvents(region, apiKey, projectId, sessionId, window, customEvents) {
+  const baseline = ["$pageview", "$autocapture", "$dead_click", "$rageclick", "$exception"];
+  const eventList = Array.from(new Set([...baseline, ...(customEvents || [])]))
+    .map(e => `'${e.replace(/'/g, "''")}'`)
+    .join(", ");
+  const timeFilter = window ? `AND timestamp >= now() - INTERVAL ${window}` : "";
+  const data = await hogqlPost(region, apiKey, projectId, `
+    SELECT
+        event,
+        properties.$el_text AS el_text,
+        properties.$pathname AS pathname,
+        timestamp
+    FROM events
+    WHERE properties.$session_id = '${sessionId.replace(/'/g, "''")}'
+      ${timeFilter}
+      AND event IN (${eventList})
+    ORDER BY timestamp
+    LIMIT 150
+  `);
+  return hogqlRows(data);
 }
 
 async function detectRegionAndProjects(apiKey) {
