@@ -181,10 +181,14 @@ export default {
       ).all();
       const reportActivityMap = {};
       for (const row of reportActivity) reportActivityMap[row.owner_email] = row.last_report;
+      const { results: slackRows } = await env.DB.prepare("SELECT owner_email, status FROM slack_connections").all();
+      const slackStatusMap = {};
+      for (const row of slackRows) slackStatusMap[row.owner_email] = row.status;
       const enriched = users.map(u => ({
         ...u,
         connection_count: connCountMap[u.email] || 0,
         last_activity: eventActivityMap[u.email] || reportActivityMap[u.email] || null,
+        slack_status: slackStatusMap[u.email] || null,
       }));
       return json(enriched);
     }

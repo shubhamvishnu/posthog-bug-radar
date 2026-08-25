@@ -23,6 +23,7 @@ a{color:var(--accent);text-decoration:none}
 --oc-done:#2f9e6b;
 --shadow:0 1px 2px rgba(20,16,10,.05),0 6px 18px rgba(20,16,10,.045);
 --panel-grad:linear-gradient(150deg,#d5e6ff 0%,#ffe6d5 46%,#ffe1ce 62%,#d9f2e7 100%);
+--bg-side:#fafaf8;--bg-active:#eeece8;--icon-tile:#181510;--icon-fg:#ffffff;
 }
 html[data-theme="dark"]{
 --bg:#0c0d10;--bg-sub:#101116;--bg-elev:#15161b;--bg-hover:#16181d;
@@ -33,6 +34,7 @@ html[data-theme="dark"]{
 --oc-done:#3fce8f;
 --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.3);
 --panel-grad:linear-gradient(150deg,#12233b 0%,#2a1a12 50%,#122a20 100%);
+--bg-side:#0a0b0d;--bg-active:#1b1d23;--icon-tile:#20222a;--icon-fg:#ffffff;
 }
 @keyframes fade-up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
@@ -53,14 +55,6 @@ html[data-theme="dark"]{
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* ---- app shell ---- */
-.app{min-height:100vh}
-.topbar{display:flex;align-items:center;gap:18px;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--bg-elev)}
-.topbar-brand{font-weight:700;font-size:15px;letter-spacing:-.01em}
-.topbar-nav{display:flex;gap:4px;margin-left:12px}
-.topbar-nav button{padding:7px 13px;border-radius:8px;font-size:13px;font-weight:500;color:var(--muted)}
-.topbar-nav button.active{color:var(--text);background:var(--bg-active,var(--bg-sub))}
-.topbar-right{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--muted)}
-.main{max-width:1080px;margin:0 auto;padding:28px 24px 60px}
 .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px}
 .stat-card{border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);padding:18px}
 .stat-card .n{font-size:26px;font-weight:700;letter-spacing:-.02em}
@@ -68,6 +62,59 @@ html[data-theme="dark"]{
 .section-title{font-size:13px;font-weight:600;color:var(--muted);letter-spacing:.02em;text-transform:uppercase;margin:0 0 12px}
 .panel{border:1px solid var(--border);border-radius:14px;background:var(--bg-elev);padding:6px 18px}
 .empty-note{color:var(--faint);font-size:13px;padding:16px 2px}
+
+/* ---- sidebar shell (ported verbatim from worker/public/index.html) ---- */
+.app{display:flex;height:100vh}
+.sidebar{width:232px;flex:none;background:var(--bg-side);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100%;transition:width .16s ease;overflow:hidden}
+.sidebar.collapsed{width:58px}
+.ws-row{display:flex;align-items:center;gap:6px;padding:14px 12px 12px;justify-content:space-between}
+.sidebar.collapsed .ws-row{flex-direction:column;padding:14px 0 12px;gap:10px;justify-content:center}
+.ws-btn{display:flex;align-items:center;gap:9px;min-width:0;flex:1;text-align:left}
+.sidebar.collapsed .ws-btn{flex:none}
+.logo-tile{width:26px;height:26px;flex:none;border-radius:7px;background:var(--icon-tile);display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+.ws-name{font-weight:600;font-size:14px}
+.sidebar.collapsed .lbl{display:none}
+.collapse-btn{display:grid;place-items:center;width:26px;height:26px;flex:none;border-radius:6px;color:var(--faint)}
+.collapse-btn:hover{background:var(--bg-hover)}
+.side-nav{padding:6px 8px;display:flex;flex-direction:column;gap:1px}
+.sidebar.collapsed .side-nav{padding:6px 0}
+.nav-item{display:flex;align-items:center;gap:9px;height:31px;padding:0 9px;border-radius:7px;font-size:13px;font-weight:450;text-align:left;color:var(--muted)}
+.sidebar.collapsed .nav-item{padding:0;justify-content:center}
+.nav-item svg{flex:none}
+.nav-item.active{color:var(--text);background:var(--bg-active);font-weight:550}
+.nav-item:hover:not(.active){background:var(--bg-hover)}
+.side-bottom{margin-top:auto;padding:10px 8px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px}
+.sidebar.collapsed .side-bottom{padding:10px 0}
+.user-row{display:flex;align-items:center;gap:9px;padding:4px;width:100%;text-align:left;border-radius:8px}
+.user-row:hover{background:var(--bg-hover)}
+.user-row .user-meta{min-width:0;overflow:hidden}
+.user-row .user-name,.user-row .user-role{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.sidebar.collapsed .user-row{justify-content:center;padding:2px 0}
+.avatar{width:26px;height:26px;flex:none;border-radius:50%;background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);display:grid;place-items:center;font-weight:600;font-size:11px}
+.avatar.lg{width:48px;height:48px;font-size:17px}
+.avatar.md{width:28px;height:28px;font-size:11px}
+.user-meta{min-width:0}
+.user-name{display:block;font-weight:500;font-size:12.5px;line-height:1.15}
+.user-role{display:block;color:var(--faint);font-size:10.5px}
+
+.main{flex:1;min-width:0;height:100%;display:flex;flex-direction:column;overflow:hidden}
+.pageheader{height:44px;flex:none;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;padding:0 20px}
+.pageheader .crumb{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:5px}
+.pageheader .crumb:hover{color:var(--text)}
+.pageheader .sep{color:var(--faint)}
+.pageheader .title{font-weight:600;font-size:13.5px}
+.pageheader .idmono{font-family:'JetBrains Mono',monospace;color:var(--text);font-size:12.5px}
+.pageheader .count{color:var(--faint);font-family:'JetBrains Mono',monospace;font-size:12px}
+.content{flex:1;min-height:0;overflow:auto}
+.contentpad{padding:26px 30px 70px;max-width:900px}
+
+/* ---- people / sessions list rows ---- */
+.list-subhead{display:flex;align-items:center;height:34px;padding:0 20px;background:var(--bg-sub);border-bottom:1px solid var(--border);font-size:11px;letter-spacing:.02em;color:var(--faint);font-weight:500;gap:8px}
+.list-row{display:flex;align-items:center;width:100%;height:42px;padding:0 20px;border-bottom:1px solid var(--border-soft);text-align:left;gap:10px}
+.list-row:hover{background:var(--bg-hover)}
+.col-user{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+.col-user .nm{font-weight:500;font-size:13px;white-space:nowrap}
+.col-user .meta{font-size:12px;color:var(--faint);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 <div id="app"></div>
 <script>
@@ -75,6 +122,15 @@ function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":
 // CSS-property context (interpolated into a style="..." attribute), not HTML-entity context —
 // HTML escaping alone doesn't stop CSS-declaration injection, so validate the shape instead.
 function safeColor(c) { return /^#[0-9a-f]{6}$/i.test(c || "") ? c : "#64748b"; }
+
+const ICON_LOGO = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="3.4" cy="12.6" r="1.7" fill="var(--accent)"/><path d="M3.4 8.4A4.2 4.2 0 0 1 7.6 12.6" stroke="var(--icon-fg)" stroke-width="1.5" stroke-linecap="round" stroke-opacity=".92"/><path d="M3.4 4.4A8.2 8.2 0 0 1 11.6 12.6" stroke="var(--icon-fg)" stroke-width="1.5" stroke-linecap="round" stroke-opacity=".5"/></svg>`;
+const ICON_PEOPLE = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="9" cy="8" r="3.1"/><path d="M3.6 19c.5-3 2.8-4.6 5.4-4.6S13.9 16 14.4 19"/><path d="M16.4 5.5a3 3 0 0 1 0 5.1M18.4 19c-.3-2-1.1-3.3-2.5-4.1"/></svg>`;
+const ICON_SESSIONS = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><rect x="3.5" y="4.5" width="17" height="15" rx="2.4"/><path d="M3.5 9h17M8 13h5M8 16h8"/></svg>`;
+const ICON_PLUG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M9 2v6M15 2v6M7 8h10l-1 5a5 5 0 0 1-8 0z"/><path d="M12 17v5"/></svg>`;
+const ICON_TARGET = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".8" fill="currentColor"/></svg>`;
+const ICON_TAG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M11.5 3.5H5a1.5 1.5 0 0 0-1.5 1.5v6.5L13 21l7.5-7.5z"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/></svg>`;
+const ICON_ACTIVITY = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M3 12h4l2.5-7L14 19l2.5-7H21"/></svg>`;
+const SLACK_MARK_SVG = (px) => `<svg width="${px}" height="${px}" viewBox="0 0 122 122" fill="none"><path d="M25.8 77c0 7.1-5.8 12.9-12.9 12.9S0 84.1 0 77s5.8-12.9 12.9-12.9h12.9V77z" fill="#E01E5A"/><path d="M32.3 77c0-7.1 5.8-12.9 12.9-12.9S58.1 69.9 58.1 77v32.3c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V77z" fill="#E01E5A"/><path d="M45.2 25.8c-7.1 0-12.9-5.8-12.9-12.9S38.1 0 45.2 0s12.9 5.8 12.9 12.9v12.9H45.2z" fill="#36C5F0"/><path d="M45.2 32.3c7.1 0 12.9 5.8 12.9 12.9S52.3 58.1 45.2 58.1H12.9C5.8 58.1 0 52.3 0 45.2s5.8-12.9 12.9-12.9h32.3z" fill="#36C5F0"/><path d="M96.2 45.2c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9-5.8 12.9-12.9 12.9H96.2V45.2z" fill="#2EB67D"/><path d="M89.7 45.2c0 7.1-5.8 12.9-12.9 12.9S63.9 52.3 63.9 45.2V12.9C63.9 5.8 69.7 0 76.8 0s12.9 5.8 12.9 12.9v32.3z" fill="#2EB67D"/><path d="M76.8 96.2c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V96.2h12.9z" fill="#ECB22E"/><path d="M76.8 89.7c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H76.8z" fill="#ECB22E"/></svg>`;
 
 function getTheme() { return localStorage.getItem("bra_theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); }
 
@@ -142,17 +198,18 @@ async function openUser(email) {
 
 function renderUsersTable() {
   const rows = USERS.map(u => `
-    <button data-act="open-user" data-email="${escapeHtml(u.email)}" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;width:100%;text-align:left;padding:12px 0;border-top:1px solid var(--border-soft);font-size:13px">
+    <button data-act="open-user" data-email="${escapeHtml(u.email)}" style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:12px;width:100%;text-align:left;padding:12px 0;border-top:1px solid var(--border-soft);font-size:13px">
       <span style="font-weight:500">${escapeHtml(u.email)}</span>
       <span style="color:var(--muted)">${escapeHtml(String(u.created_at || "").slice(0, 10))}</span>
       <span style="color:var(--muted)">${u.connection_count} connection${u.connection_count === 1 ? "" : "s"}</span>
       <span style="color:var(--faint)">${u.last_activity ? relTimeLabel(u.last_activity) : "no activity"}</span>
+      <span style="color:${u.slack_status === "connected" ? "var(--oc-done)" : "var(--faint)"}">${u.slack_status === "connected" ? "Slack connected" : "No Slack"}</span>
     </button>`).join("");
   return `
-  <div class="section-title">Users<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${USERS.length}</span></div>
+  <div class="pageheader"><span class="title">Tenants</span><span class="count">${USERS.length}</span></div>
   <div class="panel">
-    <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;padding:10px 0;font-size:11px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.03em">
-      <span>Email</span><span>Signed up</span><span>Connections</span><span>Last activity</span>
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr;gap:12px;padding:10px 0;font-size:11px;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.03em">
+      <span>Email</span><span>Signed up</span><span>Connections</span><span>Last activity</span><span>Slack</span>
     </div>
     ${rows || `<div class="empty-note">No users yet.</div>`}
   </div>`;
@@ -336,7 +393,7 @@ function renderUserDetail() {
   const u = USER_DETAIL;
   const connections = u.connections || [];
   return `
-  <button data-act="nav" data-view="users" style="font-size:13px;color:var(--muted);margin-bottom:14px;display:inline-block">&larr; Users</button>
+  <button data-act="nav" data-view="tenants" style="font-size:13px;color:var(--muted);margin-bottom:14px;display:inline-block">&larr; Tenants</button>
   <div style="font-size:20px;font-weight:700;letter-spacing:-.02em;margin-bottom:2px">${escapeHtml(u.user.email)}</div>
   <div style="font-size:12.5px;color:var(--muted);margin-bottom:22px">Signed up ${escapeHtml(String(u.user.created_at || "").slice(0, 10))}</div>
   <div class="section-title">Connections<span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-weight:600;color:var(--faint)">${connections.length}</span></div>
@@ -351,15 +408,22 @@ function renderOverview() {
   const statusEntries = Object.entries(OVERVIEW.connectionsByStatus || {});
   const statusLabel = statusEntries.length ? statusEntries.map(([s, n]) => `${n} ${s}`).join(" · ") : "no connections yet";
   return `
-  <div class="stat-row">
-    <div class="stat-card"><div class="n">${OVERVIEW.userCount}</div><div class="lbl">Users</div></div>
-    <div class="stat-card"><div class="n">${OVERVIEW.connectionCount}</div><div class="lbl">Connections</div></div>
-    <div class="stat-card"><div class="n">${OVERVIEW.reportCount}</div><div class="lbl">Reports</div></div>
-    <div class="stat-card"><div class="n" style="font-size:15px;font-weight:600;line-height:1.5">${escapeHtml(statusLabel)}</div><div class="lbl">By status</div></div>
-  </div>
-  <div class="section-title">Global activity</div>
-  <div class="panel">
-    ${EVENTS.length ? EVENTS.map(ev => auditRowHtml(ev, { showOwner: true })).join("") : `<div class="empty-note">No activity yet.</div>`}
+  <div class="pageheader"><span class="title">Overview</span></div>
+  <div class="content contentpad">
+    <div class="stat-row">
+      <div class="stat-card"><div class="n">${OVERVIEW.userCount}</div><div class="lbl">Users</div></div>
+      <div class="stat-card"><div class="n">${OVERVIEW.connectionCount}</div><div class="lbl">Connections</div></div>
+      <div class="stat-card"><div class="n">${OVERVIEW.reportCount}</div><div class="lbl">Reports</div></div>
+      <div class="stat-card"><div class="n" style="font-size:15px;font-weight:600;line-height:1.5">${escapeHtml(statusLabel)}</div><div class="lbl">By status</div></div>
+    </div>
+  </div>`;
+}
+
+function renderEventsScreen() {
+  return `
+  <div class="pageheader"><span class="title">Events</span><span class="count">${EVENTS.length}</span></div>
+  <div class="content contentpad">
+    <div class="panel">${EVENTS.length ? EVENTS.map(ev => auditRowHtml(ev, { showOwner: true })).join("") : `<div class="empty-note">No activity yet.</div>`}</div>
   </div>`;
 }
 
@@ -418,23 +482,39 @@ function renderLoginShell() {
 function renderMainContent() {
   switch (state.view) {
     case "overview": return renderOverview();
-    case "users": return renderUsersTable();
+    case "tenants": return renderUsersTable();
     case "user-detail": return renderUserDetail();
+    case "events": return renderEventsScreen();
     default: return "";
   }
 }
 
-function renderTopbar() {
-  const tabs = [["overview", "Overview"], ["users", "Users"]];
+function renderSidebar() {
+  const v = state.view;
+  const isTenants = v === "tenants" || v === "user-detail";
   return `
-  <div class="topbar">
-    <span class="topbar-brand">Bug Radar Admin</span>
-    <div class="topbar-nav">${tabs.map(([v, l]) => `<button class="${state.view === v ? "active" : ""}" data-act="nav" data-view="${v}">${l}</button>`).join("")}</div>
-    <div class="topbar-right">
-      <span>${escapeHtml(AUTH.email || "")}</span>
-      <button data-act="logout" style="color:var(--muted)">Log out</button>
+  <aside class="sidebar">
+    <div class="ws-row">
+      <button class="ws-btn" data-act="nav" data-view="overview">
+        <span class="logo-tile">${ICON_LOGO}</span>
+        <span class="lbl ws-name">Bug Radar Admin</span>
+      </button>
     </div>
-  </div>`;
+    <nav class="side-nav">
+      <button class="nav-item${v === "overview" ? " active" : ""}" data-act="nav" data-view="overview">${ICON_ACTIVITY}<span class="lbl">Overview</span></button>
+      <button class="nav-item${isTenants ? " active" : ""}" data-act="nav" data-view="tenants">${ICON_PEOPLE}<span class="lbl">Tenants</span></button>
+      <button class="nav-item${v === "events" ? " active" : ""}" data-act="nav" data-view="events">${ICON_SESSIONS}<span class="lbl">Events</span></button>
+    </nav>
+    <div class="side-bottom">
+      <div style="display:flex;align-items:center;gap:9px;padding:4px">
+        <span class="avatar md">${escapeHtml((AUTH.email || "?")[0].toUpperCase())}</span>
+        <span class="user-meta" style="min-width:0;overflow:hidden">
+          <span class="user-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(AUTH.email || "")}</span>
+        </span>
+      </div>
+      <button data-act="logout" style="font-size:12.5px;color:var(--muted);text-align:left;padding:6px 4px">Log out</button>
+    </div>
+  </aside>`;
 }
 
 function render() {
@@ -444,7 +524,7 @@ function render() {
     app.innerHTML = renderLoginShell();
     return;
   }
-  app.innerHTML = `<div class="app">${renderTopbar()}<main class="main">${renderMainContent()}</main></div>`;
+  app.innerHTML = `<div class="app">${renderSidebar()}<main class="main">${renderMainContent()}</main></div>`;
 }
 
 document.addEventListener("click", e => {
@@ -452,7 +532,7 @@ document.addEventListener("click", e => {
   if (!el) return;
   const act = el.dataset.act;
   if (act === "logout") logout();
-  else if (act === "nav") { state.view = el.dataset.view; if (el.dataset.view === "users" && !USERS.length) loadUsers(); render(); }
+  else if (act === "nav") { state.view = el.dataset.view; if (el.dataset.view === "tenants" && !USERS.length) loadUsers(); render(); }
   else if (act === "open-user") { openUser(el.dataset.email); }
   else if (act === "toggle-task") { toggleTask(el.dataset.key); }
   else if (act === "toggle-moments") { toggleMoments(el.dataset.key); }
