@@ -202,6 +202,10 @@ async function loadSessions() {
 async function loadConnections() {
   const res = await fetch("/api/connections");
   if (res.ok) CONNECTIONS = (await res.json()).connections;
+  // The nav click handler calls render() synchronously right after kicking this off, so on the
+  // very first visit to Integrations (nothing preloaded it, unlike Tenants via init()) that render
+  // paints before this fetch resolves and nothing repaints it — re-render once data lands.
+  render();
 }
 
 async function openSession(sessionId, ownerEmail) {
