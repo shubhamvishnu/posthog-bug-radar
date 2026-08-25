@@ -1092,6 +1092,11 @@ async function runPipelineForConnection(env, conn) {
 }
 
 async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
+  // Same heartbeat rationale as runPipelineForConnection: stamps in-progress
+  // before any real work, so two overlapping manual run-now calls on the same
+  // connection can't race each other's D1 writes.
+  await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(conn.id).run();
+
   const region = conn.region;
   const projectId = conn.project_id;
   const apiKey = await decryptSecret(env, conn.encrypted_api_key, conn.iv);
