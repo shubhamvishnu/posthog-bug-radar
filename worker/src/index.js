@@ -1,3 +1,8 @@
+import {
+  askJev, indexEvents, candidateBoundaries, boundaryQuestions, segmentsFromAnswers,
+  verdictState, verdictQuestions, tasksFromVerdicts, textPromptFor, applyText, describeJevAnalysis,
+} from "./jev.js";
+
 const SESSION_COOKIE = "bugradar_session";
 const SESSION_DAYS = 30;
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -964,7 +969,7 @@ function capMergedFindings(findings) {
   return capped;
 }
 
-async function saveGeneratedReport(env, { ownerEmail, connectionId, generatedAt, macroThemes, microFindings, themePrompt, sessionPrompt, captureCount, triggerLabel }) {
+async function saveGeneratedReport(env, { ownerEmail, connectionId, generatedAt, macroThemes, microFindings, themePrompt, sessionPrompt, captureCount, triggerLabel, note }) {
   const goalsResult = await resolveGoals(env, ownerEmail, microFindings || []);
   const tagsResult = await resolveTags(env, ownerEmail, goalsResult.findings);
   const newFindings = tagsResult.findings;
@@ -1016,7 +1021,7 @@ async function saveGeneratedReport(env, { ownerEmail, connectionId, generatedAt,
     const outreachCount = newFindings.filter(f => f.recommended_outreach).length;
     await logConnectionEvent(
       env, connectionId, "sync_completed", "success", "Sync completed",
-      `Pulled ${newFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount || 0} moments queued.`,
+      `Pulled ${newFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${captureCount || 0} moments queued.${note || ""}`,
       triggerLabel || "scheduled"
     );
   }
@@ -1059,6 +1064,138 @@ async function triggerCaptureViaGithub(env, sessionId, keyTimestamp, connectionI
   }
 }
 
+/* ---------------- session analysis: Jev judgments + text-model write-ups ---------------- */
+
+// Everything a session analysis needs about the tenant, loaded once per run.
+async function loadAnalysisContext(env, ownerEmail) {
+  const companyRow = await env.DB.prepare("SELECT description FROM company_knowledge WHERE owner_email = ?").bind(ownerEmail).first();
+  const companyContext = companyRow?.description || "No company description saved yet, treat this as a generic web product.";
+  const { results: goalRows } = await env.DB.prepare("SELECT id, purpose, description, tags FROM goals WHERE owner_email = ? ORDER BY id").bind(ownerEmail).all();
+  const goals = goalRows.map(g => ({ ...g, tags: JSON.parse(g.tags || "[]") }));
+  const { results: tags } = await env.DB.prepare("SELECT id, label FROM tags WHERE owner_email = ? ORDER BY id").bind(ownerEmail).all();
+  // A missing or broken text model must not stop Jev's judgments from being saved.
+  let aiConfig = null;
+  try {
+    aiConfig = await resolveAiConfig(env, ownerEmail);
+  } catch (e) {
+    console.error(`[write-up] no text model for ${ownerEmail}: ${e.message}`);
+  }
+  return {
+    companyContext,
+    goals,
+    tags,
+    goalsContext: goals.length
+      ? JSON.stringify(goals.map(g => ({ id: g.id, purpose: g.purpose, description: g.description, tags: g.tags })))
+      : "(none yet, every task in this run should propose a new_goal)",
+    tagsContext: tags.length
+      ? JSON.stringify(tags.map(t => ({ id: t.id, label: t.label })))
+      : "(none yet, propose a new_tag for any task that clearly needs one)",
+    aiConfig,
+    textError: null,
+    jevTokens: 0,
+  };
+}
+
+async function analyzeSessionWithJev(env, ctx, events) {
+  const key = env.TYPESAFE_API_KEY;
+  const compact = indexEvents(events);
+  const { hard, soft } = candidateBoundaries(events);
+  let boundaryAnswers = {};
+  if (soft.length) {
+    const b = await askJev(key, { product: ctx.companyContext, events: compact }, boundaryQuestions(compact, soft));
+    boundaryAnswers = b.answers;
+    ctx.jevTokens += b.inputTokens;
+  }
+  const segments = segmentsFromAnswers(events.length, hard, soft, boundaryAnswers);
+  const v = await askJev(
+    key,
+    verdictState(ctx.companyContext, compact, segments, events),
+    verdictQuestions({ compact, events, segments, goals: ctx.goals, tags: ctx.tags })
+  );
+  ctx.jevTokens += v.inputTokens;
+  const { tasks, notes, outreachIndex } = tasksFromVerdicts({ compact, events, segments, goals: ctx.goals, tags: ctx.tags, answers: v.answers });
+
+  // The text model only writes prose, and only for tasks worth a write-up. After one failure
+  // (out of credit, bad key) it is not retried for the rest of the run: every remaining
+  // session gets plain text instead of another failing call.
+  let written = null;
+  if (notes.some(n => n.needsText) && ctx.aiConfig && !ctx.textError) {
+    try {
+      written = await callLlm(textPromptFor({ companyContext: ctx.companyContext, tasks, notes, outreachIndex, compact, tags: ctx.tags }), ctx.aiConfig);
+    } catch (e) {
+      ctx.textError = `${ctx.aiConfig.provider}: ${String(e.message).slice(0, 160)}`;
+      console.error(`[write-up] ${ctx.textError}; using plain text for the rest of this run`);
+    }
+  }
+  const recommended_outreach = applyText({ tasks, notes, outreachIndex, compact, events, written });
+  return { tasks, recommended_outreach, engine: written ? "jev" : "jev-plain" };
+}
+
+// Jev first; the original single-call text-model verdict only if Jev is unavailable or fails.
+async function analyzeSession(env, ctx, events) {
+  if (env.TYPESAFE_API_KEY) {
+    try {
+      return await analyzeSessionWithJev(env, ctx, events);
+    } catch (e) {
+      console.error(`[jev] failed, falling back to the text model: ${e.message}`);
+    }
+  }
+  if (!ctx.aiConfig) throw new Error("No analysis available: Jev failed and no AI provider is configured");
+  const result = await callLlm(sessionPromptFor(ctx.companyContext, ctx.goalsContext, ctx.tagsContext, JSON.stringify(events)), ctx.aiConfig);
+  return { tasks: result.tasks || [], recommended_outreach: result.recommended_outreach || null, engine: "llm" };
+}
+
+function buildFinding(region, projectId, c, events, analysis) {
+  return {
+    session_id: c.session_id,
+    replay_url: `${PH_REGIONS[region]}/project/${projectId}/replay/${c.session_id}`,
+    started_at: c.started_at,
+    person: { person_id: c.person_id, email: c.email, name: c.name, role: c.role },
+    triage_counts: { dead_clicks: c.dead_clicks, rage_clicks: c.rage_clicks, exceptions: c.exceptions },
+    events,
+    tasks: analysis.tasks,
+    recommended_outreach: analysis.recommended_outreach,
+    engine: analysis.engine,
+  };
+}
+
+function capturesFor(finding) {
+  const out = [];
+  finding.tasks.forEach((task, idx) => {
+    if (task.outcome === "blocked" || task.severity === "high") out.push([finding.session_id, task.key_timestamp || finding.started_at, idx]);
+  });
+  return out;
+}
+
+function sameTriage(a, b) {
+  return !!a && !!b && a.dead_clicks === b.dead_clicks && a.rage_clicks === b.rage_clicks && a.exceptions === b.exceptions;
+}
+
+// One line on how this run analysed sessions, appended to its sync event in the audit log.
+function analysisNote(ctx, findings) {
+  const engines = new Set(findings.map(f => f.engine));
+  const parts = [];
+  if (engines.has("jev") || engines.has("jev-plain")) parts.push(`Judged by Jev (${ctx.jevTokens} tokens)`);
+  if (engines.has("llm")) parts.push("some sessions judged by the text model (Jev unavailable)");
+  if (ctx.textError) parts.push(`write-ups fell back to plain text (${ctx.textError})`);
+  return parts.length ? ` ${parts.join("; ")}.` : "";
+}
+
+function parseRunRequest(text) {
+  if (!text) return null;
+  try {
+    const r = JSON.parse(text);
+    return r && typeof r === "object" ? { session_ids: Array.isArray(r.session_ids) && r.session_ids.length ? r.session_ids : null } : null;
+  } catch {
+    return null;
+  }
+}
+
+const MACRO_REFRESH_MS = 24 * 60 * 60 * 1000; // theme naming is one text-model call; once a day is plenty
+const MACRO_RETRY_MS = 60 * 60 * 1000; // after a failed refresh, try again in an hour, not every tick
+const SESSION_SETTLE_MS = 30 * 60 * 1000; // judge a session once it has gone quiet, not while it is still happening
+const FAILURE_BACKOFF_MS = 60 * 60 * 1000; // after a failed run, wait this long before the cron retries it
+
 const PIPELINE_MACRO_WINDOW = "14 DAY";
 const PIPELINE_MICRO_WINDOW = "3 DAY";
 const PIPELINE_SESSION_WINDOW = "4 DAY"; // micro window + 1 day
@@ -1076,69 +1213,85 @@ async function runPipelineForConnection(env, conn) {
   };
   const customEvents = (conn.config_json ? JSON.parse(conn.config_json) : {}).customEvents || [];
   const sessionLimit = conn.sync_max_sessions || 8;
+  const ctx = await loadAnalysisContext(env, conn.owner_email);
+  console.log(`[connection] #${conn.id} ${conn.project_name} (${region}) owner=${conn.owner_email} jev=${!!env.TYPESAFE_API_KEY} text=${ctx.aiConfig ? `${ctx.aiConfig.provider}/${ctx.aiConfig.model}` : "none"}`);
 
-  const companyRow = await env.DB.prepare("SELECT description FROM company_knowledge WHERE owner_email = ?").bind(conn.owner_email).first();
-  const companyContext = companyRow?.description || "No company description saved yet — treat this as a generic web product.";
+  const base = await env.DB.prepare(
+    "SELECT macro_themes, micro_findings, theme_prompt FROM reports WHERE owner_email = ? ORDER BY id DESC LIMIT 1"
+  ).bind(conn.owner_email).first();
+  const baseFindings = new Map((base ? JSON.parse(base.micro_findings) : []).map(f => [f.session_id, f]));
 
-  const { results: goalRows } = await env.DB.prepare("SELECT id, purpose, description, tags FROM goals WHERE owner_email = ? ORDER BY id").bind(conn.owner_email).all();
-  const goals = goalRows.map(g => ({ ...g, tags: JSON.parse(g.tags || "[]") }));
-  const goalsContext = goals.length
-    ? JSON.stringify(goals.map(g => ({ id: g.id, purpose: g.purpose, description: g.description, tags: g.tags })))
-    : "(none yet — every task in this run should propose a new_goal)";
+  // Macro themes: one text-model call, refreshed at most daily. A failed refresh keeps the
+  // previous themes and retries in an hour instead of on every 5-minute tick.
+  let themes = base ? JSON.parse(base.macro_themes) : [];
+  let themePrompt = base?.theme_prompt || null;
+  let themesRefreshed = false;
+  const themesAt = conn.macro_themes_at ? sqliteTimeToMs(conn.macro_themes_at) : NaN;
+  const themesDue = !Array.isArray(themes) || !themes.length || Number.isNaN(themesAt) || Date.now() - themesAt >= MACRO_REFRESH_MS;
+  if (themesDue && ctx.aiConfig) {
+    let stampMs = Date.now();
+    try {
+      const clusters = await fetchMacroClusters(region, apiKey, projectId, PIPELINE_MACRO_WINDOW, 25);
+      const prompt = themePromptFor(ctx.companyContext, JSON.stringify(clusters));
+      const fresh = await callLlm(prompt, ctx.aiConfig);
+      if (!Array.isArray(fresh)) throw new Error("theme response was not a list");
+      themes = fresh;
+      themePrompt = prompt;
+      themesRefreshed = true;
+    } catch (e) {
+      stampMs = Date.now() - (MACRO_REFRESH_MS - MACRO_RETRY_MS);
+      console.error(`[macro] theme refresh failed, keeping the previous themes: ${String(e.message).slice(0, 200)}`);
+    }
+    await env.DB.prepare("UPDATE connections SET macro_themes_at = ? WHERE id = ?")
+      .bind(toSqliteTime(new Date(stampMs)), conn.id).run();
+  }
 
-  const { results: tagRows } = await env.DB.prepare("SELECT id, label FROM tags WHERE owner_email = ? ORDER BY id").bind(conn.owner_email).all();
-  const tagsContext = tagRows.length
-    ? JSON.stringify(tagRows.map(t => ({ id: t.id, label: t.label })))
-    : "(none yet — propose a new_tag for any task that clearly needs one)";
-
-  const aiConfig = await resolveAiConfig(env, conn.owner_email);
-  console.log(`[llm] routing through ${aiConfig.provider} / ${aiConfig.model} for ${conn.owner_email}`);
-  console.log(`[connection] #${conn.id} ${conn.project_name} (${region}) owner=${conn.owner_email}`);
-
-  const clusters = await fetchMacroClusters(region, apiKey, projectId, PIPELINE_MACRO_WINDOW, 25);
-  const themePrompt = themePromptFor(companyContext, JSON.stringify(clusters));
-  const themes = await callLlm(themePrompt, aiConfig);
-
-  const candidates = await fetchCandidateSessions(region, apiKey, projectId, PIPELINE_MICRO_WINDOW, sessionLimit, identity);
-
+  // Micro pass: the worst sessions in the window, but only ones not already analysed (or with
+  // new problem events since) and only once they have gone quiet. Re-judging the same sessions
+  // every tick is what burned through the provider credit when the cadence was set to 5 minutes.
+  const pool = await fetchCandidateSessions(region, apiKey, projectId, PIPELINE_MICRO_WINDOW, sessionLimit * 3, identity);
+  const settledBefore = Date.now() - SESSION_SETTLE_MS;
   const findings = [];
   const pendingCaptures = [];
-  for (const c of candidates) {
-    const sid = c.session_id;
-    const events = await fetchSessionEvents(region, apiKey, projectId, sid, PIPELINE_SESSION_WINDOW, customEvents);
+  let unchanged = 0;
+  let inProgress = 0;
+  for (const c of pool) {
+    if (findings.length >= sessionLimit) break;
+    const prev = baseFindings.get(c.session_id);
+    if (prev && sameTriage(prev.triage_counts, { dead_clicks: c.dead_clicks, rage_clicks: c.rage_clicks, exceptions: c.exceptions })) {
+      unchanged++;
+      continue;
+    }
+    const events = await fetchSessionEvents(region, apiKey, projectId, c.session_id, PIPELINE_SESSION_WINDOW, customEvents);
     if (!events.length) continue;
-    const sessionPrompt = sessionPromptFor(companyContext, goalsContext, tagsContext, JSON.stringify(events));
-    const result = await callLlm(sessionPrompt, aiConfig);
-    const finding = {
-      session_id: sid,
-      replay_url: `${PH_REGIONS[region]}/project/${projectId}/replay/${sid}`,
-      started_at: c.started_at,
-      person: { person_id: c.person_id, email: c.email, name: c.name, role: c.role },
-      triage_counts: { dead_clicks: c.dead_clicks, rage_clicks: c.rage_clicks, exceptions: c.exceptions },
-      events,
-      tasks: result.tasks || [],
-      recommended_outreach: result.recommended_outreach || null,
-    };
-    (finding.tasks || []).forEach((task, idx) => {
-      if (task.outcome === "blocked" || task.severity === "high") {
-        pendingCaptures.push([sid, task.key_timestamp || c.started_at, idx]);
-      }
-    });
+    // 150 is fetchSessionEvents' cap: a session that full will not change what we see.
+    if (events.length < 150 && Date.parse(events[events.length - 1].timestamp) > settledBefore) {
+      inProgress++;
+      continue;
+    }
+    const finding = buildFinding(region, projectId, c, events, await analyzeSession(env, ctx, events));
+    pendingCaptures.push(...capturesFor(finding));
     findings.push(finding);
   }
 
-  const generatedAt = new Date().toISOString();
-  const sessionPromptSample = sessionPromptFor(companyContext, goalsContext, tagsContext, "<per-session events>");
+  if (!findings.length && !themesRefreshed) {
+    // Nothing new: no new report row (a row per 5-minute tick would bloat D1 for no reason).
+    await env.DB.prepare("UPDATE connections SET last_pipeline_run_at = datetime('now') WHERE id = ?").bind(conn.id).run();
+    console.log(`[done] connection #${conn.id}: nothing new (${unchanged} already analysed, ${inProgress} still in progress)`);
+    return { themes: Array.isArray(themes) ? themes.length : 0, sessions: 0, tasks: 0, real_bugs: 0, unchanged, in_progress: inProgress, noop: true };
+  }
+
   const saveResult = await saveGeneratedReport(env, {
     ownerEmail: conn.owner_email,
     connectionId: conn.id,
-    generatedAt,
+    generatedAt: new Date().toISOString(),
     macroThemes: themes,
     microFindings: findings,
     themePrompt,
-    sessionPrompt: sessionPromptSample,
+    sessionPrompt: describeJevAnalysis(),
     captureCount: pendingCaptures.length,
     triggerLabel: "scheduled",
+    note: analysisNote(ctx, findings),
   });
 
   // Only dispatch a screenshot capture for sessions that are genuinely new this run --
@@ -1154,8 +1307,8 @@ async function runPipelineForConnection(env, conn) {
   const themeCount = Array.isArray(themes) ? themes.length : 0;
   const totalTasks = findings.reduce((n, f) => n + f.tasks.length, 0);
   const realBugs = findings.reduce((n, f) => n + f.tasks.filter(t => t.real_bug).length, 0);
-  console.log(`[done] connection #${conn.id}: ${themeCount} macro themes, ${findings.length} sessions -> ${totalTasks} tasks, ${realBugs} real bugs`);
-  return { themes: themeCount, sessions: findings.length, tasks: totalTasks, real_bugs: realBugs };
+  console.log(`[done] connection #${conn.id}: ${themeCount} macro themes${themesRefreshed ? " (refreshed)" : ""}, ${findings.length} sessions -> ${totalTasks} tasks, ${realBugs} real bugs`);
+  return { themes: themeCount, sessions: findings.length, tasks: totalTasks, real_bugs: realBugs, unchanged, in_progress: inProgress };
 }
 
 async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
@@ -1170,50 +1323,20 @@ async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
   };
   const customEvents = (conn.config_json ? JSON.parse(conn.config_json) : {}).customEvents || [];
 
-  const companyRow = await env.DB.prepare("SELECT description FROM company_knowledge WHERE owner_email = ?").bind(conn.owner_email).first();
-  const companyContext = companyRow?.description || "No company description saved yet — treat this as a generic web product.";
-
-  const { results: goalRows } = await env.DB.prepare("SELECT id, purpose, description, tags FROM goals WHERE owner_email = ? ORDER BY id").bind(conn.owner_email).all();
-  const goals = goalRows.map(g => ({ ...g, tags: JSON.parse(g.tags || "[]") }));
-  const goalsContext = goals.length
-    ? JSON.stringify(goals.map(g => ({ id: g.id, purpose: g.purpose, description: g.description, tags: g.tags })))
-    : "(none yet — every task in this run should propose a new_goal)";
-
-  const { results: tagRows } = await env.DB.prepare("SELECT id, label FROM tags WHERE owner_email = ? ORDER BY id").bind(conn.owner_email).all();
-  const tagsContext = tagRows.length
-    ? JSON.stringify(tagRows.map(t => ({ id: t.id, label: t.label })))
-    : "(none yet — propose a new_tag for any task that clearly needs one)";
-
-  const aiConfig = await resolveAiConfig(env, conn.owner_email);
+  const ctx = await loadAnalysisContext(env, conn.owner_email);
   const candidates = await fetchSessionsById(region, apiKey, projectId, sessionIds, identity, 30);
 
   const findings = [];
   const pendingCaptures = [];
   for (const c of candidates) {
-    const sid = c.session_id;
-    const events = await fetchSessionEvents(region, apiKey, projectId, sid, "30 DAY", customEvents);
+    const events = await fetchSessionEvents(region, apiKey, projectId, c.session_id, "30 DAY", customEvents);
     if (!events.length) continue;
-    const sessionPrompt = sessionPromptFor(companyContext, goalsContext, tagsContext, JSON.stringify(events));
-    const result = await callLlm(sessionPrompt, aiConfig);
-    const finding = {
-      session_id: sid,
-      replay_url: `${PH_REGIONS[region]}/project/${projectId}/replay/${sid}`,
-      started_at: c.started_at,
-      person: { person_id: c.person_id, email: c.email, name: c.name, role: c.role },
-      triage_counts: { dead_clicks: c.dead_clicks, rage_clicks: c.rage_clicks, exceptions: c.exceptions },
-      events,
-      tasks: result.tasks || [],
-      recommended_outreach: result.recommended_outreach || null,
-    };
-    (finding.tasks || []).forEach((task, idx) => {
-      if (task.outcome === "blocked" || task.severity === "high") {
-        pendingCaptures.push([sid, task.key_timestamp || c.started_at, idx]);
-      }
-    });
+    const finding = buildFinding(region, projectId, c, events, await analyzeSession(env, ctx, events));
+    pendingCaptures.push(...capturesFor(finding));
     findings.push(finding);
   }
 
-  const sessionPromptSample = sessionPromptFor(companyContext, goalsContext, tagsContext, "<per-session events>");
+  const sessionPromptSample = describeJevAnalysis();
   const goalsResult = await resolveGoals(env, conn.owner_email, findings);
   const tagsResult = await resolveTags(env, conn.owner_email, goalsResult.findings);
   const resolvedFindings = tagsResult.findings;
@@ -1252,7 +1375,7 @@ async function runPipelineForConnectionTargeted(env, conn, sessionIds) {
   const outreachCount = resolvedFindings.filter(f => f.recommended_outreach).length;
   await logConnectionEvent(
     env, conn.id, "sync_completed", "success", "Sync completed",
-    `Pulled ${resolvedFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${pendingCaptures.length} moments queued.`,
+    `Pulled ${resolvedFindings.length} sessions · ${taskCount} tasks · ${realBugCount} real bugs · ${outreachCount} outreach · ${goalsResult.count} new goals · ${tagsResult.count} new tags · ${pendingCaptures.length} moments queued.${analysisNote(ctx, findings)}`,
     "manual · targeted"
   );
   await postSlackNotifications(env, conn.owner_email, resolvedFindings);
@@ -1480,14 +1603,15 @@ export default {
       ).bind(id).first();
       if (!conn) return json({ error: "not found" }, 404);
       const body = await request.json().catch(() => ({}));
-      const sessionIds = Array.isArray(body.session_ids) && body.session_ids.length ? body.session_ids : null;
-      // A full run (macro + up to sync_max_sessions session verdicts) can run well past
-      // any reasonable HTTP response window -- confirmed live, a 20-session run outran a
-      // synchronous request. ctx.waitUntil keeps the run alive after this handler returns,
-      // same pattern scheduled() below uses; check connection_events or the run's own
-      // sync_completed/sync_failed event for the actual outcome instead of this response.
-      ctx.waitUntil(runPipelineSafely(env, conn, sessionIds));
-      return json({ ok: true, started: true, connection_id: id, targeted: !!sessionIds });
+      const sessionIds = Array.isArray(body.session_ids) && body.session_ids.length ? body.session_ids.map(String).slice(0, 50) : null;
+      // Queued for the next cron tick, not run here. A run can outlive this request: awaited,
+      // it dies if the caller disconnects; handed to ctx.waitUntil, Cloudflare cuts it off about
+      // 30 seconds after the response (confirmed live: a run saved its report, then was killed
+      // mid screenshot-dispatch before releasing its lock). The cron's own invocation has no
+      // such cutoff. The outcome shows up as this connection's next sync_completed/sync_failed event.
+      await env.DB.prepare("UPDATE connections SET run_request = ? WHERE id = ?")
+        .bind(JSON.stringify({ session_ids: sessionIds, requested_at: new Date().toISOString() }), id).run();
+      return json({ ok: true, queued: true, connection_id: id, targeted: !!sessionIds, runs: "on the next cron tick, within 5 minutes" });
     }
 
     if (pathname === "/api/pipeline/company-knowledge" && request.method === "GET") {
@@ -2406,12 +2530,31 @@ export default {
               "scheduled"
             ).catch(() => {});
           }
-          if (!dueByCadence && !dueByStaleLock) continue;
+          const requested = parseRunRequest(r.run_request);
+          if (!dueByCadence && !dueByStaleLock && !requested) continue;
+          // Back off after a failed run: a failure does not move last_pipeline_run_at, so without
+          // this a broken connection (an exhausted API key, say) is retried every tick, forever.
+          // A run someone asked for (run-now) goes ahead regardless.
+          if (!dueByStaleLock && !requested) {
+            const lastFail = await env.DB.prepare(
+              "SELECT created_at FROM connection_events WHERE connection_id = ? AND kind = 'sync_failed' ORDER BY id DESC LIMIT 1"
+            ).bind(r.id).first();
+            const failMs = lastFail ? sqliteTimeToMs(lastFail.created_at) : NaN;
+            const okMs = r.last_pipeline_run_at ? sqliteTimeToMs(r.last_pipeline_run_at) : 0;
+            if (!Number.isNaN(failMs) && failMs > okMs && now - failMs < FAILURE_BACKOFF_MS) continue;
+          }
           due.push(r);
         }
         console.log(`[scheduled] ${due.length}/${rows.length} connection(s) due`);
         for (const conn of due) {
-          await runPipelineSafely(env, conn, null);
+          const requested = parseRunRequest(conn.run_request);
+          if (requested) await env.DB.prepare("UPDATE connections SET run_request = NULL WHERE id = ?").bind(conn.id).run();
+          const result = await runPipelineSafely(env, conn, requested?.session_ids || null);
+          // Another run held the lock: keep the request so the next tick serves it.
+          if (requested && result.skipped) {
+            await env.DB.prepare("UPDATE connections SET run_request = ? WHERE id = ? AND run_request IS NULL")
+              .bind(conn.run_request, conn.id).run();
+          }
         }
       } catch (e) {
         console.error(`ERROR: scheduled() failed before/outside any per-connection run: ${e.message}`);

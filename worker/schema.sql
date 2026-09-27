@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS connections (
   last_pipeline_run_at TEXT,
   pipeline_lock_at TEXT,
   pipeline_lock_token TEXT,
+  macro_themes_at TEXT,
+  run_request TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

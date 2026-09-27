@@ -485,8 +485,9 @@ const PIPELINE = [
   ["Signals", "$dead_click · $rageclick · $exception (events only, no session video)"],
   ["Macro lookback", "14 days"],
   ["Micro lookback", "3 days"],
-  ["Sessions per run", "8 (worst dead + rage×3 + exceptions×5)"],
-  ["LLM", "provider API (Anthropic / OpenAI / Gemini, per-tenant, set in Admin > AI Providers)"],
+  ["Sessions per run", "up to your max sessions setting, new or changed sessions only, once they go quiet"],
+  ["Judgments", "Jev (TypeSafe): task boundaries, outcome, bug, severity, goal, tags, key event, outreach gates"],
+  ["Write-ups", "provider set in Admin > AI Providers, only for tasks worth one (plain text if unavailable)"],
   ["Store", "Cloudflare Worker + D1"],
 ];
 
@@ -2309,7 +2310,7 @@ function renderKnowledgeTab() {
 function renderPipelineTab() {
   const prompts = [
     { name: "Macro pass: theme naming", tag: "macro", body: PROMPTS.theme },
-    { name: "Micro pass: per-session verdict", tag: "micro", body: PROMPTS.session },
+    { name: "Micro pass: per-session judgments (Jev) + write-ups", tag: "micro", body: PROMPTS.session },
   ];
   const kvHtml = PIPELINE.map(([k, v]) => `<div class="kv-row"><span class="kv-k">${escapeHtml(k)}</span><span class="kv-v">${escapeHtml(v)}</span></div>`).join("");
   const promptsHtml = prompts.map(p => `
