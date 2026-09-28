@@ -535,6 +535,7 @@ const state = {
   selPersonKey: null,
   backTo: "sessions",
   sevFilter: "all",
+  sessSort: localStorage.getItem("br_sess_sort") === "newest" ? "newest" : "oldest",
   search: "",
   collapsed: localStorage.getItem("br_collapsed") === "1",
   correction: null,
@@ -1023,6 +1024,15 @@ function filteredSessions() {
   let list = REPORT.micro_findings.slice();
   if (sf !== "all") list = list.filter(f => worstSeverity(f.tasks) === sf);
   if (q) list = list.filter(f => (f.session_id + " " + (f.tasks || []).map(t => t.title + " " + t.goal).join(" ")).toLowerCase().includes(q));
+  // By when each session started, in the direction picked in the toolbar. A session with no
+  // start time sorts last either way rather than jumping to one end.
+  const at = f => { const t = new Date(f.started_at).getTime(); return isNaN(t) ? null : t; };
+  const dir = state.sessSort === "newest" ? -1 : 1;
+  list.sort((a, b) => {
+    const ta = at(a), tb = at(b);
+    if (ta === null || tb === null) return (ta === null) - (tb === null);
+    return dir * (ta - tb);
+  });
   return list;
 }
 
@@ -1052,6 +1062,7 @@ function renderSessions() {
     <div class="sess-toolbar">
       <div class="search-box">${ICON_SEARCH}<input id="sessSearch" type="text" placeholder="Filter…" value="${escapeHtml(state.search)}"/></div>
       <div class="sev-tabs">${sevTabDefs.map(([v, l]) => `<button class="sev-tab${state.sevFilter === v ? " active" : ""}" data-act="sev-filter" data-val="${v}">${l}</button>`).join("")}</div>
+      <div class="sev-tabs" title="Order by when the session happened">${[["oldest", "Oldest first"], ["newest", "Newest first"]].map(([v, l]) => `<button class="sev-tab${state.sessSort === v ? " active" : ""}" data-act="sess-sort" data-val="${v}">${l}</button>`).join("")}</div>
     </div>
   </div>
   <div class="list-subhead">${ICON_ARROW}<span style="font-weight:600;color:var(--text)">Reviewed this run</span><span>${REPORT.micro_findings.length}</span></div>
@@ -2481,6 +2492,7 @@ document.addEventListener("click", e => {
   else if (act === "open-person") { state.route = "people-detail"; state.selPersonKey = el.dataset.key; render(); }
   else if (act === "back-session") { state.route = state.backTo; render(); }
   else if (act === "sev-filter") { state.sevFilter = el.dataset.val; render(); }
+  else if (act === "sess-sort") { state.sessSort = el.dataset.val === "newest" ? "newest" : "oldest"; localStorage.setItem("br_sess_sort", state.sessSort); render(); }
   else if (act === "toggle-correct") {
     const f = REPORT.micro_findings.find(x => x.session_id === state.selSession);
     const ti = Number(el.dataset.task);
